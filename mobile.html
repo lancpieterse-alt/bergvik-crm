@@ -1,0 +1,963 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1F4E79">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Bergvik Field">
+<link rel="manifest" href="/manifest.json">
+<title>Bergvik Field</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+:root{
+  --blue:#1F4E79; --blue-lt:#e8f0fb;
+  --green:#2e7d32; --green-lt:#e8f5e9;
+  --orange:#e65100; --orange-lt:#fff3e0;
+  --red:#c62828; --red-lt:#fce4ec;
+  --bg:#f0f2f5; --card:#fff;
+  --border:#dde3ec; --txt:#1a1a1a; --muted:#888;
+  --radius:14px;
+  --safe-top:env(safe-area-inset-top,0px);
+  --safe-bot:env(safe-area-inset-bottom,0px);
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html{font-size:16px}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--txt);min-height:100vh;min-height:100dvh;overflow-x:hidden}
+
+/* ── Offline ── */
+#offline-bar{position:fixed;top:0;left:0;right:0;z-index:900;background:#b71c1c;color:#fff;text-align:center;padding:.55rem 1rem;font-size:.82rem;font-weight:700;display:none;padding-top:calc(.55rem + var(--safe-top))}
+body.is-offline #offline-bar{display:block}
+
+/* ── Sync badge ── */
+#sync-badge{display:none;position:fixed;top:calc(.9rem + var(--safe-top));right:1rem;z-index:200;background:#b71c1c;color:#fff;border-radius:20px;padding:.25rem .65rem;font-size:.75rem;font-weight:800;gap:.3rem;align-items:center;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+#sync-badge.show{display:flex}
+
+/* ── Spinner ── */
+.spin{display:inline-block;width:18px;height:18px;border:2.5px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:_spin .6s linear infinite}
+@keyframes _spin{to{transform:rotate(360deg)}}
+
+/* ── Buttons ── */
+.btn{display:flex;align-items:center;justify-content:center;gap:.45rem;padding:.88rem 1.4rem;border:none;border-radius:12px;font-size:1rem;font-weight:700;cursor:pointer;width:100%;transition:opacity .15s,transform .1s;font-family:inherit}
+.btn:active{opacity:.82;transform:scale(.98)}
+.btn-primary{background:var(--blue);color:#fff}
+.btn-success{background:var(--green);color:#fff}
+.btn-ghost{background:transparent;color:var(--blue);font-weight:600}
+.btn-sm{padding:.5rem .9rem;font-size:.85rem;width:auto;border-radius:8px}
+.btn:disabled{opacity:.55;pointer-events:none}
+
+/* ── Inputs ── */
+.field{margin-bottom:1.1rem}
+label.lbl{display:block;font-size:.75rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.35rem}
+input[type=text],input[type=email],input[type=password],input[type=date],input[type=tel],textarea,select{
+  width:100%;padding:.85rem 1rem;border:1.5px solid var(--border);border-radius:10px;
+  font-size:1rem;font-family:inherit;color:var(--txt);background:#fff;
+  -webkit-appearance:none;appearance:none;transition:border-color .15s}
+input:focus,textarea:focus,select:focus{outline:none;border-color:var(--blue)}
+textarea{min-height:88px;resize:vertical;line-height:1.5}
+select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right .8rem center;padding-right:2.5rem}
+
+/* ── Screens ── */
+.screen{min-height:100dvh;display:none;flex-direction:column;align-items:center;justify-content:center;padding:2rem 1.5rem}
+.screen.show{display:flex}
+
+/* ── Login ── */
+.login-logo{width:68px;height:68px;background:var(--blue);border-radius:20px;display:flex;align-items:center;justify-content:center;margin-bottom:1.5rem;box-shadow:0 4px 20px rgba(31,78,121,.35)}
+.login-box{width:100%;max-width:400px}
+
+/* ── App ── */
+#app{display:none;padding-bottom:calc(68px + var(--safe-bot))}
+
+/* ── Top bar ── */
+.top-bar{background:var(--blue);color:#fff;padding:.95rem 1.25rem;padding-top:calc(.95rem + var(--safe-top));position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:.75rem}
+.top-bar h1{font-size:1.1rem;font-weight:800;flex:1}
+.top-back{background:none;border:none;color:#fff;font-size:1.1rem;padding:.2rem .4rem;cursor:pointer;line-height:1}
+.top-action{background:none;border:none;color:rgba(255,255,255,.75);font-size:.8rem;cursor:pointer;white-space:nowrap}
+
+/* ── Bottom nav ── */
+#bottom-nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--border);display:flex;padding-bottom:var(--safe-bot);z-index:50;box-shadow:0 -2px 10px rgba(0,0,0,.08)}
+.nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.18rem;padding:.6rem .2rem;background:none;border:none;cursor:pointer;font-size:.68rem;font-weight:600;color:var(--muted);position:relative;font-family:inherit}
+.nav-btn.active{color:var(--blue)}
+.nav-btn i{font-size:1.35rem}
+.nav-dot{position:absolute;top:.4rem;right:calc(50% - 1.2rem);background:var(--red);color:#fff;border-radius:10px;padding:.08rem .35rem;font-size:.62rem;font-weight:800;min-width:18px;text-align:center}
+
+/* ── Views ── */
+.view{display:none}
+.view.show{display:block}
+.vbody{padding:1.1rem}
+
+/* ── Home tiles ── */
+.tile{background:var(--card);border-radius:var(--radius);padding:1.2rem 1.1rem;display:flex;align-items:center;gap:.9rem;box-shadow:0 1px 4px rgba(0,0,0,.07);cursor:pointer;border:none;width:100%;text-align:left;margin-bottom:.7rem;font-family:inherit}
+.tile:active{opacity:.84;transform:scale(.99)}
+.tile-icon{width:48px;height:48px;border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:1.35rem;flex-shrink:0}
+.tile-txt h3{font-size:1rem;font-weight:700;color:var(--txt)}
+.tile-txt p{font-size:.8rem;color:var(--muted);margin-top:.12rem}
+.tile-chevron{margin-left:auto;color:#ccc;font-size:.85rem;flex-shrink:0}
+.tile-badge{background:var(--red);color:#fff;border-radius:12px;padding:.12rem .45rem;font-size:.72rem;font-weight:800;margin-left:auto;flex-shrink:0}
+
+/* ── Type pills ── */
+.pills{display:flex;flex-wrap:wrap;gap:.45rem}
+.pill{padding:.52rem .85rem;border-radius:30px;border:1.5px solid var(--border);background:#fff;font-size:.88rem;font-weight:600;cursor:pointer;color:var(--txt);font-family:inherit;transition:all .12s}
+.pill.on{background:var(--blue);border-color:var(--blue);color:#fff}
+
+/* ── Lead picker button ── */
+.picker-btn{width:100%;padding:.85rem 1rem;border:1.5px solid var(--border);border-radius:10px;background:#fff;text-align:left;font-size:1rem;color:var(--muted);cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-family:inherit}
+.picker-btn.chosen{color:var(--txt);border-color:var(--blue)}
+
+/* ── Lead modal ── */
+#lead-modal{display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.5);flex-direction:column}
+#lead-modal.open{display:flex}
+.modal-sheet{background:#fff;border-radius:22px 22px 0 0;margin-top:auto;max-height:80dvh;display:flex;flex-direction:column;padding-bottom:var(--safe-bot)}
+.modal-handle{width:38px;height:4px;background:#ddd;border-radius:4px;margin:.7rem auto}
+.modal-search{padding:0 1rem .75rem}
+.modal-search input{width:100%}
+.lead-list{overflow-y:auto;flex:1}
+.lead-item{padding:.8rem 1.1rem;border-bottom:1px solid var(--border);cursor:pointer}
+.lead-item:active{background:var(--blue-lt)}
+.lead-name{font-weight:700;font-size:.93rem}
+.lead-sub{font-size:.77rem;color:var(--muted);margin-top:.08rem}
+
+/* ── Follow-up cards ── */
+.fu-card{background:var(--card);border-radius:var(--radius);padding:.95rem 1rem;margin-bottom:.65rem;box-shadow:0 1px 4px rgba(0,0,0,.07)}
+.fu-chip{display:inline-block;font-size:.73rem;font-weight:700;padding:.18rem .5rem;border-radius:6px;margin-bottom:.35rem}
+.fu-overdue{background:var(--red-lt);color:var(--red)}
+.fu-today{background:var(--orange-lt);color:var(--orange)}
+.fu-soon{background:var(--green-lt);color:var(--green)}
+
+/* ── Save status ── */
+.save-msg{padding:.72rem 1rem;border-radius:10px;font-weight:700;font-size:.88rem;text-align:center;margin-bottom:1rem;display:none}
+.save-msg.ok{display:block;background:var(--green-lt);color:var(--green)}
+.save-msg.err{display:block;background:var(--red-lt);color:var(--red)}
+
+/* ── Empty state ── */
+.empty{text-align:center;padding:3rem 1.5rem;color:var(--muted)}
+.empty i{font-size:2.4rem;margin-bottom:.7rem;display:block;opacity:.35}
+
+/* ── Toast ── */
+#toast{position:fixed;bottom:calc(80px + var(--safe-bot));left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:.6rem 1.2rem;border-radius:30px;font-size:.86rem;font-weight:700;z-index:400;pointer-events:none;opacity:0;transition:opacity .25s;white-space:nowrap}
+#toast.show{opacity:1}
+
+/* ── Pending banner ── */
+#pending-banner{background:var(--red-lt);border-radius:12px;padding:.9rem 1rem;margin-top:.5rem;display:none;align-items:center;gap:.75rem}
+#pending-banner.show{display:flex}
+</style>
+</head>
+<body>
+
+<!-- ── Offline bar ── -->
+<div id="offline-bar"><i class="fa-solid fa-wifi" style="text-decoration:line-through;margin-right:.4rem"></i>No connection — unsaved items queued for retry</div>
+
+<!-- ── Sync badge ── -->
+<div id="sync-badge"><i class="fa-solid fa-triangle-exclamation"></i><span id="sync-n">0</span> not synced</div>
+
+<!-- ── Toast ── -->
+<div id="toast"></div>
+
+<!-- ────────────────────────────────────────────────────────────────────────
+     LOGIN SCREEN
+─────────────────────────────────────────────────────────────────────────── -->
+<div id="screen-login" class="screen show">
+  <div class="login-logo"><i class="fa-solid fa-handshake" style="color:#fff;font-size:1.9rem"></i></div>
+  <p style="font-size:1.55rem;font-weight:800;margin-bottom:.2rem">Bergvik Field</p>
+  <p style="color:var(--muted);font-size:.92rem;margin-bottom:2.25rem">Field activity capture</p>
+  <div class="login-box">
+    <div class="field">
+      <label class="lbl">Email</label>
+      <input type="email" id="li-email" autocomplete="email" placeholder="you@bergvik.com">
+    </div>
+    <div class="field">
+      <label class="lbl">Password</label>
+      <input type="password" id="li-pass" autocomplete="current-password" placeholder="••••••••">
+    </div>
+    <div id="li-err" style="display:none;color:var(--red);font-size:.86rem;margin-bottom:.75rem;text-align:center"></div>
+    <button class="btn btn-primary" id="li-btn" onclick="doLogin()"><span id="li-lbl">Sign in</span></button>
+    <p style="font-size:.76rem;color:var(--muted);text-align:center;margin-top:1rem">Session persists — sign in once and stay logged in</p>
+    <div style="text-align:center;margin-top:.75rem">
+      <button onclick="showMobileForgot()" style="background:none;border:none;color:var(--blue);font-size:.82rem;cursor:pointer;text-decoration:underline;padding:0">Forgot password?</button>
+    </div>
+
+    <!-- Forgot-password panel -->
+    <div id="m-forgot-panel" style="display:none;margin-top:1.25rem;border-top:1px solid var(--border);padding-top:1.25rem;width:100%;max-width:400px">
+      <p style="font-size:.84rem;color:var(--muted);margin-bottom:.75rem;text-align:center">We'll send a reset link to your email.</p>
+      <div class="field">
+        <label class="lbl">Email</label>
+        <input type="email" id="m-forgot-email" placeholder="you@bergvik.com" autocomplete="email">
+      </div>
+      <div id="m-forgot-err" style="display:none;color:var(--red);font-size:.83rem;margin-bottom:.7rem;text-align:center"></div>
+      <div id="m-forgot-sent" style="display:none;background:var(--green-lt);color:var(--green);border-radius:10px;padding:.65rem 1rem;font-size:.84rem;margin-bottom:.75rem;text-align:center">
+        <i class="fa-solid fa-circle-check" style="margin-right:.3rem"></i>If that email is registered, a reset link has been sent.
+      </div>
+      <button class="btn btn-primary" id="m-forgot-btn" onclick="doMobileForgot()">Send Reset Link</button>
+      <button class="btn btn-ghost" style="margin-top:.45rem;font-size:.87rem" onclick="hideMobileForgot()">← Back to sign in</button>
+    </div>
+  </div>
+</div>
+
+<!-- ────────────────────────────────────────────────────────────────────────
+     NAME SETUP SCREEN (one-time after first login)
+─────────────────────────────────────────────────────────────────────────── -->
+<div id="screen-setup" class="screen">
+  <i class="fa-solid fa-user-circle" style="font-size:3rem;color:var(--blue);margin-bottom:1rem"></i>
+  <p style="font-size:1.2rem;font-weight:800;margin-bottom:.4rem">One quick thing</p>
+  <p style="color:var(--muted);text-align:center;font-size:.9rem;margin-bottom:1.75rem;max-width:340px">
+    How should your name appear in the CRM activity log?
+  </p>
+  <div style="width:100%;max-width:360px">
+    <div class="field">
+      <label class="lbl">Your display name</label>
+      <input type="text" id="setup-name" placeholder="e.g. Johan van der Berg" autocomplete="name">
+    </div>
+    <button class="btn btn-primary" onclick="saveName()">Continue <i class="fa-solid fa-arrow-right" style="margin-left:.25rem"></i></button>
+  </div>
+</div>
+
+<!-- ────────────────────────────────────────────────────────────────────────
+     APP SHELL
+─────────────────────────────────────────────────────────────────────────── -->
+<div id="app">
+
+  <!-- ── HOME ── -->
+  <div id="view-home" class="view show">
+    <div class="top-bar">
+      <div style="flex:1">
+        <div style="font-size:.73rem;opacity:.7;margin-bottom:.1rem">Bergvik Field</div>
+        <h1 id="home-name" style="font-size:1.15rem">Welcome</h1>
+      </div>
+      <button class="top-action" onclick="doSignOut()">Sign out</button>
+    </div>
+    <!-- Overdue alert banner -->
+    <div id="overdue-alert" style="display:none;background:var(--orange-lt);border-left:4px solid var(--orange);margin:.75rem .75rem 0;border-radius:10px;padding:.7rem .9rem;align-items:center;gap:.65rem">
+      <i class="fa-solid fa-triangle-exclamation" style="color:var(--orange);flex-shrink:0"></i>
+      <div style="flex:1;font-size:.84rem;font-weight:700;color:var(--orange)" id="overdue-alert-txt"></div>
+      <button onclick="showView('followups')" style="background:var(--orange);color:#fff;border:none;border-radius:8px;padding:.3rem .7rem;font-size:.78rem;font-weight:700;cursor:pointer;flex-shrink:0">View</button>
+      <button onclick="ge('overdue-alert').style.display='none';sessionStorage.setItem('bv_m_od_dismissed','1')" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:1rem;padding:.1rem;flex-shrink:0">×</button>
+    </div>
+
+    <div class="vbody">
+      <button class="tile" onclick="showView('log')">
+        <div class="tile-icon" style="background:var(--blue-lt)"><i class="fa-solid fa-handshake" style="color:var(--blue)"></i></div>
+        <div class="tile-txt"><h3>Log Activity</h3><p>Record a meeting, call, or site visit</p></div>
+        <i class="fa-solid fa-chevron-right tile-chevron"></i>
+      </button>
+      <button class="tile" id="tile-fu" onclick="showView('followups')">
+        <div class="tile-icon" style="background:var(--orange-lt)"><i class="fa-solid fa-clock" style="color:var(--orange)"></i></div>
+        <div class="tile-txt"><h3>My Follow-ups</h3><p>Your overdue &amp; upcoming actions</p></div>
+        <span id="home-fu-badge" style="display:none" class="tile-badge"></span>
+        <i class="fa-solid fa-chevron-right tile-chevron"></i>
+      </button>
+      <button class="tile" onclick="showView('prospect')">
+        <div class="tile-icon" style="background:var(--green-lt)"><i class="fa-solid fa-user-plus" style="color:var(--green)"></i></div>
+        <div class="tile-txt"><h3>Add Prospect</h3><p>Capture a new contact from the field</p></div>
+        <i class="fa-solid fa-chevron-right tile-chevron"></i>
+      </button>
+
+      <!-- My Scorecard (rep targets vs actuals — populated after login) -->
+      <div id="scorecard-section" style="display:none;background:#fff;border-radius:12px;border:1px solid #e8edf3;overflow:hidden;margin-bottom:.75rem">
+        <div style="padding:.6rem .9rem;border-bottom:1px solid #f0f2f5;display:flex;align-items:center;gap:.5rem">
+          <i class="fa-solid fa-bullseye" style="color:var(--blue);font-size:.85rem"></i>
+          <span style="font-weight:700;font-size:.83rem;color:#333;flex:1" id="scorecard-title">My Targets</span>
+        </div>
+        <div id="scorecard-body" style="padding:.6rem .85rem .75rem"></div>
+      </div>
+
+      <!-- Pending banner -->
+      <div id="pending-banner">
+        <i class="fa-solid fa-triangle-exclamation" style="color:var(--red);font-size:1.2rem;flex-shrink:0"></i>
+        <div style="flex:1">
+          <div style="font-weight:700;font-size:.88rem;color:var(--red)">Unsynced items</div>
+          <div id="pending-detail" style="font-size:.78rem;color:#555"></div>
+        </div>
+        <button class="btn btn-sm btn-primary" style="background:var(--red);flex-shrink:0" onclick="syncQueue()">Retry</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── LOG ACTIVITY ── -->
+  <div id="view-log" class="view">
+    <div class="top-bar">
+      <button class="top-back" onclick="showView('home')"><i class="fa-solid fa-arrow-left"></i></button>
+      <h1>Log Activity</h1>
+    </div>
+    <div class="vbody">
+      <div id="log-msg" class="save-msg"></div>
+
+      <div class="field">
+        <label class="lbl">Lead / Company</label>
+        <button class="picker-btn" id="picker-btn" onclick="openLeadModal()">
+          <span id="picker-lbl">Search or select a lead…</span>
+          <i class="fa-solid fa-magnifying-glass" style="color:#aaa"></i>
+        </button>
+        <input type="text" id="log-company" placeholder="Or type a new company name" style="margin-top:.5rem;display:none">
+      </div>
+
+      <div class="field">
+        <label class="lbl">Activity type</label>
+        <div class="pills" id="type-pills">
+          <button class="pill on" data-type="Meeting" onclick="pickType(this)">Meeting</button>
+          <button class="pill" data-type="Call" onclick="pickType(this)">Call</button>
+          <button class="pill" data-type="Site Visit" onclick="pickType(this)">Site Visit</button>
+          <button class="pill" data-type="Demo Day" onclick="pickType(this)">Demo Day</button>
+          <button class="pill" data-type="Trade Show" onclick="pickType(this)">Trade Show</button>
+          <button class="pill" data-type="WhatsApp" onclick="pickType(this)">WhatsApp</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="lbl">Date</label>
+        <input type="date" id="log-date">
+      </div>
+
+      <div class="field">
+        <label class="lbl">What was discussed</label>
+        <textarea id="log-notes" placeholder="Key points, outcomes, context…"></textarea>
+      </div>
+
+      <div class="field">
+        <label class="lbl">Next action</label>
+        <input type="text" id="log-na" placeholder="What happens next?">
+      </div>
+
+      <div class="field">
+        <label class="lbl">Next action date</label>
+        <input type="date" id="log-na-date">
+      </div>
+
+      <button class="btn btn-success" id="log-save-btn" onclick="saveActivity()">
+        <i class="fa-solid fa-check"></i> Save Activity
+      </button>
+      <button class="btn btn-ghost" style="margin-top:.5rem" onclick="showView('home')">Cancel</button>
+    </div>
+  </div>
+
+  <!-- ── FOLLOW-UPS ── -->
+  <div id="view-followups" class="view">
+    <div class="top-bar">
+      <button class="top-back" onclick="showView('home')"><i class="fa-solid fa-arrow-left"></i></button>
+      <h1>My Follow-ups</h1>
+    </div>
+    <div class="vbody" id="fu-body">
+      <div class="empty"><i class="fa-solid fa-spinner fa-spin"></i>Loading…</div>
+    </div>
+  </div>
+
+  <!-- ── ADD PROSPECT ── -->
+  <div id="view-prospect" class="view">
+    <div class="top-bar">
+      <button class="top-back" onclick="showView('home')"><i class="fa-solid fa-arrow-left"></i></button>
+      <h1>Add Prospect</h1>
+    </div>
+    <div class="vbody">
+      <div id="pro-msg" class="save-msg"></div>
+
+      <div class="field">
+        <label class="lbl">Contact name</label>
+        <input type="text" id="p-name" placeholder="First and last name" autocomplete="off">
+      </div>
+      <div class="field">
+        <label class="lbl">Company <span style="color:var(--red)">*</span></label>
+        <input type="text" id="p-company" placeholder="Company or organisation" autocomplete="off">
+      </div>
+      <div class="field">
+        <label class="lbl">Lead type</label>
+        <select id="p-type">
+          <option value="">Select…</option>
+          <option>Contractor</option>
+          <option>Developer</option>
+          <option>Architect</option>
+          <option>Quantity Surveyor</option>
+          <option>Owner / Direct</option>
+          <option>Other</option>
+        </select>
+      </div>
+      <div class="field">
+        <label class="lbl">Phone</label>
+        <input type="tel" id="p-phone" placeholder="+27 …" autocomplete="tel">
+      </div>
+      <div class="field">
+        <label class="lbl">Email</label>
+        <input type="email" id="p-email" placeholder="email@company.com" autocomplete="off">
+      </div>
+      <div class="field">
+        <label class="lbl">Notes</label>
+        <textarea id="p-notes" placeholder="How you met, products of interest, context…"></textarea>
+      </div>
+
+      <button class="btn btn-success" id="pro-save-btn" onclick="saveProspect()">
+        <i class="fa-solid fa-user-plus"></i> Add Prospect
+      </button>
+      <button class="btn btn-ghost" style="margin-top:.5rem" onclick="showView('home')">Cancel</button>
+    </div>
+  </div>
+
+  <!-- ── BOTTOM NAV ── -->
+  <nav id="bottom-nav">
+    <button class="nav-btn active" id="nav-home" onclick="showView('home')">
+      <i class="fa-solid fa-house"></i><span>Home</span>
+    </button>
+    <button class="nav-btn" id="nav-log" onclick="showView('log')">
+      <i class="fa-solid fa-plus-circle"></i><span>Log</span>
+    </button>
+    <button class="nav-btn" id="nav-followups" onclick="showView('followups')">
+      <i class="fa-solid fa-clock"></i><span>Follow-ups</span>
+      <span class="nav-dot" id="nav-dot" style="display:none"></span>
+    </button>
+    <button class="nav-btn" id="nav-prospect" onclick="showView('prospect')">
+      <i class="fa-solid fa-user-plus"></i><span>Prospect</span>
+    </button>
+  </nav>
+</div>
+
+<!-- ────────────────────────────────────────────────────────────────────────
+     LEAD PICKER MODAL
+─────────────────────────────────────────────────────────────────────────── -->
+<div id="lead-modal" role="dialog" aria-modal="true" onclick="closeLeadModalBg(event)">
+  <div style="flex:1"></div>
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-search">
+      <input type="text" id="lead-q" placeholder="Search leads &amp; prospects…" oninput="filterLeads(this.value)" autocomplete="off">
+      <div style="margin-top:.5rem;display:flex;gap:.5rem">
+        <button class="btn btn-sm btn-ghost" style="font-size:.82rem;color:var(--muted)" onclick="useNewCompany()">
+          <i class="fa-solid fa-plus" style="margin-right:.3rem"></i>New company
+        </button>
+        <button class="btn btn-sm btn-ghost" style="font-size:.82rem;color:var(--muted)" onclick="closeLeadModal()">Cancel</button>
+      </div>
+    </div>
+    <div class="lead-list" id="lead-list"></div>
+  </div>
+</div>
+
+<!-- ────────────────────────────────────────────────────────────────────────
+     SCRIPT
+─────────────────────────────────────────────────────────────────────────── -->
+<script>
+// ── CONFIG ────────────────────────────────────────────────────────────────
+const SB_URL  = 'https://ktipapglumnhonxxkijs.supabase.co';
+const SB_ANON = 'sb_publishable_HI6xdRsIy-BNNvYFyX58vQ_CM-6rzAb';
+
+// ── SUPABASE (persistent session) ─────────────────────────────────────────
+const sb = supabase.createClient(SB_URL, SB_ANON, {
+  auth: { persistSession: true, autoRefreshToken: true, storageKey: 'bv-field-auth' }
+});
+
+// ── STATE ──────────────────────────────────────────────────────────────────
+let session = null;
+let displayName = '';
+let allLeads = [];          // [{id,company,contact,status}]
+let filteredLeads = [];
+let selectedLead = null;    // chosen lead object or null
+let followups = [];
+
+const QUEUE_KEY = 'bv_queue_v1';
+const NAME_KEY  = 'bv_dname';
+
+// ── UTILS ──────────────────────────────────────────────────────────────────
+const ge  = id => document.getElementById(id);
+const today = () => new Date().toISOString().slice(0, 10);
+const esc = s => (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+// ── OFFLINE ────────────────────────────────────────────────────────────────
+function setOnline(on){
+  document.body.classList.toggle('is-offline', !on);
+}
+window.addEventListener('online',  () => { setOnline(true);  syncQueue(); });
+window.addEventListener('offline', () => setOnline(false));
+setOnline(navigator.onLine);
+
+// ── QUEUE ──────────────────────────────────────────────────────────────────
+function getQueue(){ try { return JSON.parse(localStorage.getItem(QUEUE_KEY)||'[]'); } catch(e){ return []; } }
+function setQueue(q){ localStorage.setItem(QUEUE_KEY, JSON.stringify(q)); }
+
+function enqueue(type, data){
+  const q = getQueue();
+  q.push({ _type: type, _data: data, _ts: Date.now() });
+  setQueue(q);
+  refreshSyncBadge();
+}
+
+function refreshSyncBadge(){
+  const q = getQueue();
+  const badge = ge('sync-badge');
+  const banner = ge('pending-banner');
+  if(q.length){
+    badge.className = 'show';
+    ge('sync-n').textContent = q.length;
+    banner.classList.add('show');
+    ge('pending-detail').textContent = `${q.length} item${q.length > 1 ? 's' : ''} waiting to sync`;
+  } else {
+    badge.className = '';
+    banner.classList.remove('show');
+  }
+}
+
+async function syncQueue(){
+  if(!navigator.onLine) return;
+  const q = getQueue();
+  if(!q.length) return;
+  const failed = [];
+  for(const item of q){
+    let ok = false;
+    try {
+      if(item._type === 'activity'){
+        const { error } = await sb.from('meetings').insert(item._data);
+        ok = !error;
+      } else if(item._type === 'prospect'){
+        const { error } = await sb.from('prospects').insert(item._data);
+        ok = !error;
+      }
+    } catch(e){ ok = false; }
+    if(!ok) failed.push(item);
+  }
+  setQueue(failed);
+  refreshSyncBadge();
+  if(failed.length === 0 && q.length > 0){
+    showToast(`Synced ${q.length} item${q.length > 1 ? 's' : ''} ✓`);
+    loadFollowups();
+  } else if(failed.length > 0){
+    showToast(`${failed.length} item${failed.length > 1 ? 's' : ''} still couldn't sync`, 'err');
+  }
+}
+
+// ── TOAST ──────────────────────────────────────────────────────────────────
+let _toastTimer;
+function showToast(msg, type='ok'){
+  const t = ge('toast');
+  t.textContent = msg;
+  t.style.background = type === 'ok' ? '#2e7d32' : '#c62828';
+  t.classList.add('show');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+// ── FORGOT PASSWORD (mobile) ───────────────────────────────────────────────
+function showMobileForgot(){
+  ge('m-forgot-panel').style.display = 'block';
+  ge('m-forgot-email').focus();
+}
+function hideMobileForgot(){
+  ge('m-forgot-panel').style.display  = 'none';
+  ge('m-forgot-sent').style.display   = 'none';
+  ge('m-forgot-err').style.display    = 'none';
+  ge('m-forgot-email').value = '';
+}
+async function doMobileForgot(){
+  const email = (ge('m-forgot-email').value||'').trim();
+  ge('m-forgot-err').style.display  = 'none';
+  ge('m-forgot-sent').style.display = 'none';
+  if(!email){ ge('m-forgot-err').textContent='Please enter your email.'; ge('m-forgot-err').style.display='block'; return; }
+  const btn = ge('m-forgot-btn');
+  btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Sending…';
+  try { await sb.auth.resetPasswordForEmail(email, { redirectTo: 'https://bergvik-crm.netlify.app/' }); } catch(_e){}
+  btn.disabled = false; btn.textContent = 'Send Reset Link';
+  ge('m-forgot-sent').style.display = 'block'; // same message regardless of whether email exists
+}
+
+// ── AUTH ───────────────────────────────────────────────────────────────────
+async function doLogin(){
+  const email = ge('li-email').value.trim();
+  const pass  = ge('li-pass').value;
+  const err   = ge('li-err');
+  const lbl   = ge('li-lbl');
+  err.style.display = 'none';
+  lbl.innerHTML = '<span class="spin"></span>';
+  ge('li-btn').disabled = true;
+  const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
+  ge('li-btn').disabled = false;
+  lbl.textContent = 'Sign in';
+  if(error){ err.textContent = error.message; err.style.display='block'; return; }
+  session = data.session;
+  afterLogin();
+}
+
+async function doSignOut(){
+  await sb.auth.signOut();
+  session = null;
+  ge('app').style.display = 'none';
+  ge('screen-login').classList.add('show');
+  ge('screen-setup').classList.remove('show');
+}
+
+function afterLogin(){
+  displayName = localStorage.getItem(NAME_KEY)
+    || session?.user?.user_metadata?.full_name
+    || session?.user?.user_metadata?.name
+    || '';
+  if(!displayName){
+    ge('screen-login').classList.remove('show');
+    // Pre-fill from email
+    const emailPart = (session?.user?.email || '').split('@')[0];
+    ge('setup-name').value = emailPart ? emailPart.replace(/[._]/g,' ').replace(/\b\w/g,c=>c.toUpperCase()) : '';
+    ge('screen-setup').classList.add('show');
+    return;
+  }
+  launchApp();
+}
+
+function saveName(){
+  const n = ge('setup-name').value.trim();
+  if(!n){ ge('setup-name').style.borderColor='var(--red)'; ge('setup-name').focus(); return; }
+  localStorage.setItem(NAME_KEY, n);
+  displayName = n;
+  ge('screen-setup').classList.remove('show');
+  launchApp();
+}
+
+async function launchApp(){
+  ge('screen-login').classList.remove('show');
+  ge('screen-setup').classList.remove('show');
+  ge('app').style.display = 'block';
+  ge('home-name').textContent = displayName.split(' ')[0] || displayName;
+  ge('log-date').value = today();
+  refreshSyncBadge();
+  // Silently stamp this rep's UUID on their team row (match by email — authoritative)
+  if(session?.user?.email){
+    sb.from('team').update({ user_id: session.user.id })
+      .eq('email', session.user.email).is('user_id', null).then(() => {}).catch(() => {});
+  }
+  await Promise.all([loadLeads(), loadFollowups()]);
+  if(navigator.onLine) syncQueue();
+  loadScorecard(); // fire-and-forget: populate targets section if set
+}
+
+// ── REP SCORECARD ──────────────────────────────────────────────────────────
+async function loadScorecard(){
+  if(!session?.user?.id) return;
+  try {
+    const yr  = new Date().getFullYear();
+    const t   = today();
+    const now = new Date();
+    const doy = n => { const s = new Date(n.getFullYear(), 0, 0); return Math.floor((n - s) / 86400000); };
+    const pct = doy(now) / doy(new Date(yr, 11, 31));
+
+    // Load targets (RLS auto-scopes to this user)
+    const { data: targets } = await sb.from('rep_targets')
+      .select('metric,target_value')
+      .eq('year', yr);
+    if(!targets || !targets.length){ ge('scorecard-section').style.display = 'none'; return; }
+
+    const tMap = {};
+    targets.forEach(r => { tMap[r.metric] = Number(r.target_value); });
+
+    // Count YTD activity in parallel (meetings table has flat columns)
+    const uid = session.user.id;
+    const base = sb.from('meetings').select('*', { count: 'exact', head: true })
+      .eq('user_id', uid).gte('date', `${yr}-01-01`).lte('date', t);
+
+    const [all, calls, demos, shows] = await Promise.all([
+      sb.from('meetings').select('*',{count:'exact',head:true}).eq('user_id',uid).gte('date',`${yr}-01-01`).lte('date',t),
+      sb.from('meetings').select('*',{count:'exact',head:true}).eq('user_id',uid).gte('date',`${yr}-01-01`).lte('date',t).eq('type','Call'),
+      sb.from('meetings').select('*',{count:'exact',head:true}).eq('user_id',uid).gte('date',`${yr}-01-01`).lte('date',t).eq('type','Demo Day'),
+      sb.from('meetings').select('*',{count:'exact',head:true}).eq('user_id',uid).gte('date',`${yr}-01-01`).lte('date',t).eq('type','Trade Show'),
+    ]);
+    const actuals = {
+      meetings:    all.count   || 0,
+      calls:       calls.count || 0,
+      demo_days:   demos.count || 0,
+      trade_shows: shows.count || 0,
+    };
+
+    const METS = [
+      { key:'meetings',    label:'Activities' },
+      { key:'calls',       label:'Calls' },
+      { key:'demo_days',   label:'Demo Days' },
+      { key:'trade_shows', label:'Trade Shows' },
+    ];
+
+    const rows = METS.filter(m => tMap[m.key] != null).map(m => {
+      const tgt = tMap[m.key];
+      const act = actuals[m.key] || 0;
+      const pro = Math.round(tgt * pct);
+      const ok  = act >= pro;
+      const pF  = tgt ? Math.min(act / tgt * 100, 100) : 0;
+      const pP  = tgt ? Math.min(pro / tgt * 100, 100) : 0;
+      const c   = ok ? 'var(--green)' : (act >= pro * .8 ? '#f57f17' : 'var(--red)');
+      return `<div style="margin-bottom:.55rem">
+        <div style="display:flex;justify-content:space-between;font-size:.8rem;font-weight:700;margin-bottom:.18rem">
+          <span style="color:#444">${m.label}</span>
+          <span style="color:${c}">${act} / ${tgt}</span>
+        </div>
+        <div style="background:#f0f2f5;border-radius:20px;height:7px;position:relative;overflow:hidden">
+          <div style="position:absolute;top:0;left:0;height:100%;width:${pP}%;background:#ccc;border-radius:20px"></div>
+          <div style="position:absolute;top:0;left:0;height:100%;width:${pF}%;background:${c};border-radius:20px"></div>
+        </div>
+        <div style="font-size:.67rem;color:#aaa;margin-top:.12rem">YTD expected: ${pro}</div>
+      </div>`;
+    });
+
+    if(!rows.length){ ge('scorecard-section').style.display = 'none'; return; }
+
+    ge('scorecard-title').textContent = `My ${yr} Targets`;
+    ge('scorecard-body').innerHTML = rows.join('');
+    ge('scorecard-section').style.display = 'block';
+  } catch(_e){ ge('scorecard-section').style.display = 'none'; }
+}
+
+// ── BOOT ───────────────────────────────────────────────────────────────────
+(async () => {
+  const { data } = await sb.auth.getSession();
+  if(data?.session){ session = data.session; afterLogin(); }
+  else { ge('screen-login').classList.add('show'); }
+  sb.auth.onAuthStateChange((_, sess) => { session = sess; });
+})();
+
+// ── NAVIGATION ─────────────────────────────────────────────────────────────
+function showView(v){
+  document.querySelectorAll('.view').forEach(el => el.classList.remove('show'));
+  document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
+  ge('view-' + v).classList.add('show');
+  const nb = ge('nav-' + v);
+  if(nb) nb.classList.add('active');
+  window.scrollTo(0, 0);
+  if(v === 'log'){ resetLogForm(); ge('log-date').value = today(); }
+  if(v === 'followups') renderFollowups();
+  if(v === 'prospect') resetProspectForm();
+}
+
+// ── LEADS ──────────────────────────────────────────────────────────────────
+async function loadLeads(){
+  const { data } = await sb.from('leads').select('id,company,contact,status').order('company');
+  if(data) allLeads = data;
+  const { data: pd } = await sb.from('prospects').select('id,company,name,type').order('company');
+  if(pd) allLeads = [...allLeads, ...pd.map(p => ({ id: p.id, company: p.company, contact: p.name, status: p.type, _prospect: true }))];
+}
+
+function openLeadModal(){
+  ge('lead-modal').classList.add('open');
+  ge('lead-q').value = '';
+  filterLeads('');
+  setTimeout(() => ge('lead-q').focus(), 120);
+}
+function closeLeadModal(){ ge('lead-modal').classList.remove('open'); }
+function closeLeadModalBg(e){ if(e.target === ge('lead-modal')) closeLeadModal(); }
+
+function filterLeads(q){
+  const lq = q.toLowerCase();
+  filteredLeads = !lq ? allLeads.slice(0, 60) :
+    allLeads.filter(l => (l.company||'').toLowerCase().includes(lq) || (l.contact||'').toLowerCase().includes(lq));
+  const body = ge('lead-list');
+  if(!filteredLeads.length){
+    body.innerHTML = `<div class="empty" style="padding:2rem 1.5rem"><i class="fa-solid fa-magnifying-glass"></i>No matches</div>`;
+    return;
+  }
+  body.innerHTML = filteredLeads.map((l, i) =>
+    `<div class="lead-item" onclick="pickLead(${i})">
+      <div class="lead-name">${esc(l.company||'—')}</div>
+      <div class="lead-sub">${esc(l.contact||'')}${l.status ? ' · '+esc(l.status) : ''}${l._prospect?' <em>(prospect)</em>':''}</div>
+    </div>`
+  ).join('');
+}
+
+function pickLead(i){
+  const l = filteredLeads[i];
+  selectedLead = l;
+  const btn = ge('picker-btn');
+  ge('picker-lbl').textContent = l.company || '—';
+  btn.classList.add('chosen');
+  ge('log-company').style.display = 'none';
+  ge('log-company').value = '';
+  closeLeadModal();
+}
+
+function useNewCompany(){
+  const q = ge('lead-q').value.trim();
+  selectedLead = null;
+  const btn = ge('picker-btn');
+  ge('picker-lbl').textContent = 'Search or select a lead…';
+  btn.classList.remove('chosen');
+  ge('log-company').style.display = '';
+  ge('log-company').value = q;
+  closeLeadModal();
+  setTimeout(() => ge('log-company').focus(), 120);
+}
+
+// ── TYPE PILLS ─────────────────────────────────────────────────────────────
+function pickType(el){
+  ge('type-pills').querySelectorAll('.pill').forEach(p => p.classList.remove('on'));
+  el.classList.add('on');
+}
+function getType(){
+  const p = ge('type-pills').querySelector('.pill.on');
+  return p ? p.dataset.type : 'Meeting';
+}
+
+// ── SAVE ACTIVITY ──────────────────────────────────────────────────────────
+async function saveActivity(){
+  const company = selectedLead?.company || ge('log-company').value.trim();
+  if(!company){ setMsg('log-msg', 'Please select or enter a company.', 'err'); ge('log-company').style.display=''; ge('log-company').focus(); return; }
+
+  const rec = {
+    date:             ge('log-date').value || today(),
+    type:             getType(),
+    by:               displayName,
+    notes:            ge('log-notes').value.trim() || null,
+    next_action:      ge('log-na').value.trim()    || null,
+    next_action_date: ge('log-na-date').value      || null,
+    company:          company,
+    lead_id:          selectedLead?.id || null,
+    user_id:          session?.user?.id || null,
+  };
+
+  setBtn('log-save-btn', true, '<span class="spin"></span> Saving…');
+  setMsg('log-msg', '', null);
+
+  let saved = false;
+  if(navigator.onLine){
+    try {
+      const { error } = await sb.from('meetings').insert(rec);
+      if(error) throw error;
+      saved = true;
+    } catch(e) { console.error('Activity save error:', e); }
+  }
+
+  setBtn('log-save-btn', false, '<i class="fa-solid fa-check"></i> Save Activity');
+
+  if(saved){
+    showToast('Activity saved ✓');
+    resetLogForm();
+    showView('home');
+    loadFollowups();
+  } else {
+    // NEVER show success when write failed
+    enqueue('activity', rec);
+    setMsg('log-msg', navigator.onLine
+      ? 'Save failed — queued. Tap Retry on home screen when back online.'
+      : 'No connection — queued. Will sync automatically when online.', 'err');
+  }
+}
+
+// ── FOLLOW-UPS ─────────────────────────────────────────────────────────────
+async function loadFollowups(){
+  if(!session || !displayName) return;
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() + 14);
+  const cut = cutoff.toISOString().slice(0, 10);
+
+  try {
+    const { data } = await sb
+      .from('leads')
+      .select('id,company,contact,next_action,next_action_date,status')
+      .eq('assigned', displayName)
+      .not('next_action_date', 'is', null)
+      .lte('next_action_date', cut)
+      .not('status', 'in', '("Won","Dead / Lost")')
+      .order('next_action_date', { ascending: true });
+    followups = data || [];
+  } catch(e){ followups = []; }
+
+  const overdue = followups.filter(f => f.next_action_date < today()).length;
+  const dot   = ge('nav-dot');
+  const badge = ge('home-fu-badge');
+  const obanner = ge('overdue-alert');
+  if(overdue > 0){
+    dot.textContent = overdue; dot.style.display = '';
+    badge.textContent = overdue + ' overdue'; badge.style.display = '';
+    if(obanner && !sessionStorage.getItem('bv_m_od_dismissed')){
+      ge('overdue-alert-txt').textContent = overdue === 1
+        ? '1 overdue follow-up needs attention'
+        : `${overdue} overdue follow-ups need attention`;
+      obanner.style.display = 'flex';
+    }
+  } else {
+    dot.style.display = 'none';
+    badge.style.display = 'none';
+    if(obanner) obanner.style.display = 'none';
+  }
+}
+
+function renderFollowups(){
+  const body = ge('fu-body');
+  if(!followups.length){
+    body.innerHTML = '<div class="empty"><i class="fa-solid fa-circle-check" style="color:var(--green);opacity:1"></i><p>No follow-ups due in the next 14 days.</p></div>';
+    return;
+  }
+  const t = today();
+  body.innerHTML = followups.map(f => {
+    const isOverdue = f.next_action_date < t;
+    const isToday   = f.next_action_date === t;
+    const cls   = isOverdue ? 'fu-overdue' : (isToday ? 'fu-today' : 'fu-soon');
+    const label = isOverdue ? `Overdue · ${f.next_action_date}` : (isToday ? 'Today' : f.next_action_date);
+    return `<div class="fu-card">
+      <span class="fu-chip ${cls}">${label}</span>
+      <div style="font-weight:700;font-size:.95rem">${esc(f.company||'')}</div>
+      ${f.contact ? `<div style="font-size:.8rem;color:var(--muted)">${esc(f.contact)}</div>` : ''}
+      ${f.next_action ? `<div style="font-size:.87rem;margin-top:.4rem;color:#444"><i class="fa-solid fa-arrow-right" style="color:var(--blue);margin-right:.3rem"></i>${esc(f.next_action)}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+// ── SAVE PROSPECT ──────────────────────────────────────────────────────────
+async function saveProspect(){
+  const company = ge('p-company').value.trim();
+  if(!company){ ge('p-company').style.borderColor='var(--red)'; ge('p-company').focus(); return; }
+
+  const rec = {
+    name:    ge('p-name').value.trim()  || null,
+    company: company,
+    type:    ge('p-type').value         || null,
+    phone:   ge('p-phone').value.trim() || null,
+    email:   ge('p-email').value.trim() || null,
+    notes:   ge('p-notes').value.trim() || null,
+    user_id: session?.user?.id          || null,
+    source:  'mobile',
+  };
+
+  setBtn('pro-save-btn', true, '<span class="spin"></span> Saving…');
+  setMsg('pro-msg', '', null);
+
+  let saved = false;
+  if(navigator.onLine){
+    try {
+      const { error } = await sb.from('prospects').insert(rec);
+      if(error) throw error;
+      saved = true;
+    } catch(e){ console.error('Prospect save error:', e); }
+  }
+
+  setBtn('pro-save-btn', false, '<i class="fa-solid fa-user-plus"></i> Add Prospect');
+
+  if(saved){
+    showToast('Prospect added ✓');
+    resetProspectForm();
+    showView('home');
+    loadLeads();
+  } else {
+    enqueue('prospect', rec);
+    setMsg('pro-msg', navigator.onLine
+      ? 'Save failed — queued. Tap Retry on home screen when back online.'
+      : 'No connection — queued. Will sync automatically when online.', 'err');
+  }
+}
+
+// ── FORM HELPERS ───────────────────────────────────────────────────────────
+function setBtn(id, disabled, html){
+  const b = ge(id); b.disabled = disabled; b.innerHTML = html;
+}
+function setMsg(id, msg, type){
+  const el = ge(id);
+  el.textContent = msg;
+  el.className = 'save-msg' + (type ? ' ' + type : '');
+}
+function resetLogForm(){
+  selectedLead = null;
+  ge('picker-lbl').textContent = 'Search or select a lead…';
+  ge('picker-btn').classList.remove('chosen');
+  ge('log-company').style.display = 'none'; ge('log-company').value = '';
+  ge('log-notes').value = ''; ge('log-na').value = ''; ge('log-na-date').value = '';
+  ge('type-pills').querySelectorAll('.pill').forEach((p,i) => p.classList.toggle('on', i===0));
+  setMsg('log-msg', '', null);
+}
+function resetProspectForm(){
+  ['p-name','p-company','p-phone','p-email','p-notes'].forEach(id => ge(id).value='');
+  ge('p-type').value=''; ge('p-company').style.borderColor='';
+  setMsg('pro-msg','',null);
+}
+
+// ── SERVICE WORKER ──────────────────────────────────────────────────────────
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
+</script>
+</body>
+</html>

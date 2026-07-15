@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bergvik — Revenue Entry</title>
+<!-- Supabase JS v2 — only dependency. No CRM code, no lead/contact/management data. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+  :root { --blue:#1F4E79; --green:#2e7d32; --red:#c62828; }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  body{ font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background:#f0f2f5; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:1rem; }
+  .card{ background:#fff; border-radius:14px; box-shadow:0 3px 24px rgba(0,0,0,.09); max-width:580px; width:100%; padding:2rem 2.2rem; }
+  .brand{ display:flex; align-items:center; gap:.55rem; margin-bottom:1.6rem; }
+  .brand-icon{ width:32px; height:32px; background:var(--blue); border-radius:7px; display:flex; align-items:center; justify-content:center; }
+  .brand-icon svg{ width:18px; height:18px; }
+  .brand-name{ font-size:.95rem; font-weight:800; color:var(--blue); letter-spacing:-.02em; }
+  .brand-sub{ font-size:.72rem; color:#aaa; margin-left:auto; }
+  h2{ font-size:.95rem; font-weight:700; color:#222; margin-bottom:.25rem; }
+  .subtitle{ font-size:.76rem; color:#999; margin-bottom:1.25rem; line-height:1.5; }
+  .row{ display:flex; gap:.75rem; margin-bottom:1rem; }
+  .field{ flex:1; min-width:120px; }
+  label{ font-size:.7rem; color:#888; font-weight:700; display:block; margin-bottom:.28rem; text-transform:uppercase; letter-spacing:.04em; }
+  select{ width:100%; border:1px solid #dde3ec; border-radius:7px; padding:.42rem .6rem; font-size:.86rem; background:#fff; color:#222; cursor:pointer; }
+  select:focus{ outline:none; border-color:var(--blue); box-shadow:0 0 0 3px rgba(31,78,121,.08); }
+  .divider{ height:1px; background:#f0f2f5; margin:1rem 0; }
+  .cat-grid{ display:grid; grid-template-columns:1fr 1fr; gap:.6rem; margin-bottom:1.25rem; }
+  .cat-item{ background:#f8f9fb; border:1.5px solid #eaedf2; border-radius:9px; padding:.65rem .8rem; transition:border-color .15s; }
+  .cat-item:focus-within{ border-color:var(--blue); background:#f0f4f9; }
+  .cat-label{ font-size:.68rem; font-weight:700; color:#666; margin-bottom:.22rem; text-transform:uppercase; letter-spacing:.04em; }
+  .cat-input-wrap{ display:flex; align-items:center; gap:.3rem; }
+  .cur{ font-size:.78rem; color:#aaa; font-weight:600; flex-shrink:0; }
+  .cat-input-wrap input{ border:none; background:transparent; font-size:.95rem; font-weight:700; color:#1a1a1a; width:100%; padding:.05rem 0; }
+  .cat-input-wrap input:focus{ outline:none; }
+  .cat-input-wrap input::placeholder{ color:#ccc; font-weight:400; }
+  .total-row{ background:#1F4E7908; border:1.5px solid #1F4E7922; border-radius:9px; padding:.7rem .9rem; display:flex; justify-content:space-between; align-items:center; margin-bottom:1.25rem; }
+  .total-label{ font-size:.77rem; font-weight:700; color:var(--blue); }
+  .total-val{ font-size:1rem; font-weight:800; color:var(--blue); }
+  .btn-save{ width:100%; background:var(--blue); color:#fff; border:none; border-radius:9px; padding:.75rem; font-size:.92rem; font-weight:700; cursor:pointer; letter-spacing:.01em; transition:background .15s; }
+  .btn-save:hover:not(:disabled){ background:#164168; }
+  .btn-save:disabled{ opacity:.6; cursor:not-allowed; }
+  .msg{ margin-top:.85rem; padding:.6rem .85rem; border-radius:8px; font-size:.82rem; text-align:center; display:none; }
+  .msg.ok{ background:#e8f5e9; color:var(--green); display:block; }
+  .msg.err{ background:#fce4ec; color:var(--red); display:block; }
+  /* Expired / error state */
+  .expired{ text-align:center; padding:2.5rem 1rem; }
+  .expired .lock{ font-size:3rem; margin-bottom:1rem; display:block; }
+  .expired h3{ color:#444; font-size:1.05rem; font-weight:700; margin-bottom:.5rem; }
+  .expired p{ color:#aaa; font-size:.82rem; line-height:1.6; }
+  /* Loading */
+  .loading{ text-align:center; padding:2rem; color:#bbb; font-size:.85rem; }
+  .spin{ display:inline-block; width:20px; height:20px; border:2px solid #ddd; border-top-color:var(--blue); border-radius:50%; animation:spin .7s linear infinite; margin-right:.5rem; vertical-align:middle; }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="brand">
+    <div class="brand-icon">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M6 17V8l6-3 6 3v9" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M9 17v-5h6v5" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <span class="brand-name">Bergvik</span>
+    <span class="brand-sub">Confidential — authorised access only</span>
+  </div>
+  <div id="content">
+    <div class="loading"><span class="spin"></span>Validating link…</div>
+  </div>
+</div>
+
+<script>
+// ── Supabase connection — identical project, publishable key ──────────────────
+const SB_URL  = 'https://ktipapglumnhonxxkijs.supabase.co';
+const SB_ANON = 'sb_publishable_HI6xdRsIy-BNNvYFyX58vQ_CM-6rzAb';
+const sb = supabase.createClient(SB_URL, SB_ANON);
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+const CATEGORIES = ['Iso Floor','Iso Flex','Busbar','Accessories','Installation','Deployment','Transport','Intercompany'];
+const MONTHS     = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+// ── State ─────────────────────────────────────────────────────────────────────
+const params  = new URLSearchParams(window.location.search);
+const TOKEN   = params.get('t') || '';
+let curYear   = new Date().getFullYear();
+let curMonth  = new Date().getMonth() + 1;  // 1-indexed
+let actuals   = {};  // { category: { month: value } }
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function buildActualsMap(raw) {
+  actuals = {};
+  (raw || []).forEach(r => {
+    if (!actuals[r.category]) actuals[r.category] = {};
+    actuals[r.category][r.month] = parseFloat(r.value) || 0;
+  });
+}
+
+function getVal(cat) {
+  const v = (actuals[cat] || {})[curMonth];
+  return v !== undefined ? v : '';
+}
+
+function totalInputs() {
+  return CATEGORIES.reduce((s, cat) => {
+    const el = document.getElementById('ci-' + cat.replace(/\s/g, '_'));
+    return s + (parseFloat(el?.value) || 0);
+  }, 0);
+}
+
+function fmtR(v) {
+  return 'R ' + Number(v).toLocaleString('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
+
+// ── Error state ───────────────────────────────────────────────────────────────
+function showExpired() {
+  document.getElementById('content').innerHTML = `
+    <div class="expired">
+      <span class="lock">🔒</span>
+      <h3>This link has expired</h3>
+      <p>Revenue entry links are valid for 48 hours.<br>Please request a new link from the administrator.</p>
+    </div>`;
+}
+
+// ── Render form ───────────────────────────────────────────────────────────────
+function renderForm() {
+  const yearOpts = [curYear - 1, curYear, curYear + 1]
+    .map(y => `<option value="${y}"${y === curYear ? ' selected' : ''}>${y}</option>`).join('');
+  const monthOpts = MONTHS
+    .map((m, i) => `<option value="${i + 1}"${i + 1 === curMonth ? ' selected' : ''}>${m}</option>`).join('');
+
+  document.getElementById('content').innerHTML = `
+    <h2>Monthly Revenue Entry</h2>
+    <p class="subtitle">Enter recognised revenue from the P&L for each category. Opening a month with existing data pre-fills the figures — save overwrites.</p>
+    <div class="row">
+      <div class="field"><label>Year</label>
+        <select id="sel-year" onchange="onYearChange()">${yearOpts}</select>
+      </div>
+      <div class="field"><label>Month</label>
+        <select id="sel-month" onchange="onMonthChange()">${monthOpts}</select>
+      </div>
+    </div>
+    <div class="divider"></div>
+    <div class="cat-grid">
+      ${CATEGORIES.map(cat => {
+        const id = 'ci-' + cat.replace(/\s/g, '_');
+        return `<div class="cat-item">
+          <div class="cat-label">${cat}</div>
+          <div class="cat-input-wrap">
+            <span class="cur">R</span>
+            <input type="number" id="${id}" min="0" step="1" placeholder="0" value="${getVal(cat)}"
+              oninput="updateTotal()">
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+    <div class="total-row">
+      <span class="total-label">Total (all categories)</span>
+      <span class="total-val" id="total-display">${fmtR(CATEGORIES.reduce((s,c)=>s+(parseFloat(getVal(c))||0),0))}</span>
+    </div>
+    <button class="btn-save" id="btn-save" onclick="saveAll()">
+      Save ${MONTHS[curMonth - 1]} ${curYear}
+    </button>
+    <div class="msg" id="msg"></div>`;
+}
+
+function updateTotal() {
+  const el = document.getElementById('total-display');
+  if (el) el.textContent = fmtR(totalInputs());
+}
+
+function refillInputs() {
+  CATEGORIES.forEach(cat => {
+    const el = document.getElementById('ci-' + cat.replace(/\s/g, '_'));
+    if (el) el.value = getVal(cat);
+  });
+  const btn = document.getElementById('btn-save');
+  if (btn) btn.textContent = `Save ${MONTHS[curMonth - 1]} ${curYear}`;
+  updateTotal();
+}
+
+// ── Year / month change ───────────────────────────────────────────────────────
+async function onYearChange() {
+  curYear = parseInt(document.getElementById('sel-year').value);
+  await reloadActuals();
+  refillInputs();
+}
+
+function onMonthChange() {
+  curMonth = parseInt(document.getElementById('sel-month').value);
+  refillInputs();
+}
+
+async function reloadActuals() {
+  const { data } = await sb.rpc('get_revenue', { p_token: TOKEN, p_year: curYear });
+  if (data && !data.error) buildActualsMap(data.actuals);
+}
+
+// ── Save ──────────────────────────────────────────────────────────────────────
+async function saveAll() {
+  const btn = document.getElementById('btn-save');
+  const msg = document.getElementById('msg');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+  msg.className = 'msg';
+
+  const errors = [];
+  for (const cat of CATEGORIES) {
+    const el  = document.getElementById('ci-' + cat.replace(/\s/g, '_'));
+    const val = parseFloat(el?.value) || 0;
+    const { data: res } = await sb.rpc('save_revenue', {
+      p_token: TOKEN, p_year: curYear, p_month: curMonth, p_category: cat, p_value: val
+    });
+    if (!res || res.error) errors.push(cat);
+    else {
+      if (!actuals[cat]) actuals[cat] = {};
+      actuals[cat][curMonth] = val;
+    }
+  }
+
+  btn.disabled = false;
+  btn.textContent = `Save ${MONTHS[curMonth - 1]} ${curYear}`;
+
+  if (errors.length) {
+    msg.className = 'msg err';
+    msg.textContent = errors[0] === CATEGORIES[0] && errors.length === CATEGORIES.length
+      ? 'Save failed — this link may have expired. Please request a new one.'
+      : 'Failed to save: ' + errors.join(', ') + '. Please try again.';
+  } else {
+    msg.className = 'msg ok';
+    msg.textContent = `✓  ${MONTHS[curMonth - 1]} ${curYear} saved successfully.`;
+  }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init() {
+  if (!TOKEN) { showExpired(); return; }
+  const { data, error } = await sb.rpc('get_revenue', { p_token: TOKEN, p_year: curYear });
+  if (error || !data || data.error) { showExpired(); return; }
+  buildActualsMap(data.actuals);
+  renderForm();
+}
+
+init();
+</script>
+</body>
+</html>
