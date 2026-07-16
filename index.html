@@ -715,6 +715,8 @@
             </select></div>
           <div class="col-md-3"><label class="form-label">Bergvik Attendee(s)</label>
             <select class="form-select" id="msm-by"><option value="">— Select —</option></select></div>
+          <div class="col-md-3"><label class="form-label">Scheduled by</label>
+            <select class="form-select" id="msm-scheduledBy"><option value="">— Select —</option></select></div>
           <div class="col-md-3"><label class="form-label">Link to Lead (optional)</label>
             <select class="form-select" id="msm-lead"><option value="">— No linked lead —</option></select></div>
 
@@ -1063,6 +1065,7 @@ const REP_METRICS = [
   { key:'calls',         label:'Calls',                 icon:'fa-phone',             col:'#2e7d32' },
   { key:'demo_days',     label:'Demo Days',             icon:'fa-desktop',           col:'#6a1b9a' },
   { key:'trade_shows',   label:'Trade Shows',           icon:'fa-store',             col:'#00695c' },
+  { key:'meetings_scheduled', label:'Meetings Scheduled', icon:'fa-calendar-check', col:'#2980b9' },
   { key:'quotes_issued', label:'Proposals Sent',        icon:'fa-file-alt',          col:'#1565c0', phase2:true },
   { key:'projects_won',  label:'Projects Won',          icon:'fa-trophy',            col:'#e65100', phase2:true },
   { key:'value_won_zar', label:'Value Won (R)',         icon:'fa-coins',             col:'#c62828', phase2:true },
@@ -1078,10 +1081,14 @@ function repActuals(userId, repName, yr){
     return m.by === repName;
   });
   return {
-    meetings:    ytd.length,
-    calls:       ytd.filter(m => /call|phone/i.test(m.type||'')).length,
-    demo_days:   ytd.filter(m => m.type === 'Demo Day').length,
-    trade_shows: ytd.filter(m => m.type === 'Trade Show').length,
+    meetings:           ytd.length,
+    calls:              ytd.filter(m => /call|phone/i.test(m.type||'')).length,
+    demo_days:          ytd.filter(m => m.type === 'Demo Day').length,
+    trade_shows:        ytd.filter(m => m.type === 'Trade Show').length,
+    meetings_scheduled: [...meetings, ...smtgs].filter(m => {
+                          if(!(m.date||'').startsWith(String(yr))) return false;
+                          return (m.scheduledBy||'') === repName;
+                        }).length,
   };
 }
 
@@ -1284,6 +1291,8 @@ function populateSel(){
   const smfa=ge('sm-fna'); if(smfa){ const cv=smfa.value; smfa.innerHTML='<option value="">All Attendees</option>'+TEAM.map(u=>`<option${u===cv?' selected':''}>${esc(u)}</option>`).join(''); }
   // Standalone meeting modal: by
   const smb=ge('msm-by'); if(smb){ const cv=smb.value; smb.innerHTML='<option value="">— Select —</option>'+TEAM.map(u=>`<option${u===cv?' selected':''}>${esc(u)}</option>`).join(''); }
+  // Standalone meeting modal: scheduled by
+  const smsb=ge('msm-scheduledBy'); if(smsb){ const cv2=smsb.value; smsb.innerHTML='<option value="">— Select —</option>'+TEAM.map(u=>`<option${u===cv2?' selected':''}>${esc(u)}</option>`).join(''); }
   // Standalone meeting modal: linked lead
   const sml=ge('msm-lead'); if(sml){ const cv=sml.value; sml.innerHTML='<option value="">— No linked lead —</option>'+[...leads].sort((a,b)=>a.title.localeCompare(b.title)).map(l=>`<option value="${l.id}"${l.id===cv?' selected':''}>${esc(l.title.length>55?l.title.slice(0,55)+'…':l.title)}</option>`).join(''); }
   // Prospect filters
@@ -2097,6 +2106,7 @@ function openSMtgModal(id){
   sv('msm-date', m?.date || today());
   sv('msm-type', m?.type || 'In-Person Meeting');
   sv('msm-by',   m?.by   || curUser);
+  sv('msm-scheduledBy', m?.scheduledBy || '');
   sv('msm-lead', m?.leadId || '');
   sv('msm-company',  m?.company   || '');
   sv('msm-person',   m?.person    || '');
@@ -2120,6 +2130,7 @@ function saveSMtg(){
     date:       gv('msm-date'),
     type:       gv('msm-type'),
     by:         gv('msm-by'),
+    scheduledBy: gv('msm-scheduledBy'),
     user_id:    m?.user_id || sbSession?.user?.id || null,
     leadId:     gv('msm-lead'),
     prospectId: prospectId,
