@@ -108,6 +108,15 @@
   .age-green  { background:#e8f5e9; color:#2e7d32; }
   .age-yellow { background:#fff8e1; color:#e65100; }
   .age-red    { background:#fce4ec; color:#c62828; }
+
+  /* Standalone meetings: multi-attendee checklist */
+  .crm-attendee-list { border:1px solid #dee2e6; border-radius:.375rem; padding:.35rem .5rem; max-height:120px; overflow-y:auto; background:#fff; }
+  .crm-attendee-item { display:flex; align-items:center; gap:.4rem; font-size:.83rem; padding:.15rem 0; cursor:pointer; user-select:none; }
+  .crm-attendee-item input { margin:0; cursor:pointer; }
+  /* Status badges in meetings table */
+  .crm-status-badge { display:inline-block; border-radius:8px; font-size:.62rem; font-weight:700; padding:.05rem .32rem; white-space:nowrap; }
+  .crm-status-completed { background:#e8f5e9; color:#2e7d32; }
+  .crm-status-scheduled { background:#e3f2fd; color:#1565c0; }
 </style>
 </head>
 <body>
@@ -340,7 +349,7 @@
         <div style="overflow-x:auto">
           <table class="ct">
             <thead><tr>
-              <th>Date</th><th>Company</th><th>Person</th><th>Phone</th><th>Email</th>
+              <th>Date</th><th>Company</th><th>Person</th><th>Phone</th><th>Email</th><th>Attendee(s)</th>
               <th>What was Discussed</th><th>Projects</th><th>Next Contact</th><th>Next Action</th><th></th>
             </tr></thead>
             <tbody id="smtg-tbody"></tbody>
@@ -714,9 +723,16 @@
               <option>Demo Day</option><option>Trade Show</option><option>Pricing Submitted</option>
             </select></div>
           <div class="col-md-3"><label class="form-label">Bergvik Attendee(s)</label>
-            <select class="form-select" id="msm-by"><option value="">— Select —</option></select></div>
-          <div class="col-md-3"><label class="form-label">Link to Lead (optional)</label>
-            <select class="form-select" id="msm-lead"><option value="">— No linked lead —</option></select></div>
+            <div id="msm-by-list" class="crm-attendee-list"></div></div>
+          <div class="col-md-3">
+            <label class="form-label">Status</label>
+            <select class="form-select mb-2" id="msm-status" onchange="smtgStatusChanged()">
+              <option value="Completed">Completed</option>
+              <option value="Scheduled">Scheduled</option>
+            </select>
+            <label class="form-label">Link to Lead (optional)</label>
+            <select class="form-select" id="msm-lead"><option value="">— No linked lead —</option></select>
+          </div>
 
           <!-- Row 2: Company + Person contact details -->
           <div class="col-12"><hr style="margin:.25rem 0;border-color:#f0f2f5"><div style="font-size:.72rem;font-weight:700;color:#bbb;margin-bottom:.1rem">CONTACT DETAILS</div></div>
@@ -729,14 +745,18 @@
           <div class="col-md-2"><label class="form-label">Email</label>
             <input type="email" class="form-control" id="msm-email" placeholder="name@co.com"></div>
 
-          <!-- Row 3: Discussion -->
-          <div class="col-12"><hr style="margin:.25rem 0;border-color:#f0f2f5"><div style="font-size:.72rem;font-weight:700;color:#bbb;margin-bottom:.1rem">DISCUSSION</div></div>
-          <div class="col-12"><label class="form-label">What was Discussed</label>
-            <textarea class="form-control" id="msm-discussed" rows="3" placeholder="Summary of what was covered in the meeting..."></textarea></div>
-          <div class="col-12"><label class="form-label">Projects Specifically Discussed</label>
-            <textarea class="form-control" id="msm-projects" rows="2" placeholder="e.g. JNB03 Data Centre — they confirmed Bergvik is on the approved vendor list..."></textarea></div>
-          <div class="col-12"><label class="form-label">Outcome / Result</label>
-            <textarea class="form-control" id="msm-outcome" rows="2" placeholder="What was the result or conclusion of the meeting?"></textarea></div>
+          <!-- Row 3: Discussion (hidden for Scheduled meetings) -->
+          <div class="col-12" id="msm-disc-section">
+            <div class="row g-3">
+              <div class="col-12"><hr style="margin:.25rem 0;border-color:#f0f2f5"><div style="font-size:.72rem;font-weight:700;color:#bbb;margin-bottom:.1rem">DISCUSSION</div></div>
+              <div class="col-12"><label class="form-label">What was Discussed</label>
+                <textarea class="form-control" id="msm-discussed" rows="3" placeholder="Summary of what was covered in the meeting..."></textarea></div>
+              <div class="col-12"><label class="form-label">Projects Specifically Discussed</label>
+                <textarea class="form-control" id="msm-projects" rows="2" placeholder="e.g. JNB03 Data Centre — they confirmed Bergvik is on the approved vendor list..."></textarea></div>
+              <div class="col-12"><label class="form-label">Outcome / Result</label>
+                <textarea class="form-control" id="msm-outcome" rows="2" placeholder="What was the result or conclusion of the meeting?"></textarea></div>
+            </div>
+          </div>
 
           <!-- Row 4: Follow-up -->
           <div class="col-12"><hr style="margin:.25rem 0;border-color:#f0f2f5"><div style="font-size:.72rem;font-weight:700;color:#bbb;margin-bottom:.1rem">FOLLOW-UP</div></div>
@@ -1075,7 +1095,8 @@ function repActuals(userId, repName, yr){
   const ytd = all.filter(m => {
     if(!(m.date||'').startsWith(String(yr))) return false;
     if(userId && m.user_id) return m.user_id === userId;
-    return m.by === repName;
+    const att = Array.isArray(m.by) ? m.by : (m.by ? [m.by] : []);
+    return att.includes(repName);
   });
   return {
     meetings:    ytd.length,
@@ -1283,7 +1304,7 @@ function populateSel(){
   // Standalone meeting: attendee filter
   const smfa=ge('sm-fna'); if(smfa){ const cv=smfa.value; smfa.innerHTML='<option value="">All Attendees</option>'+TEAM.map(u=>`<option${u===cv?' selected':''}>${esc(u)}</option>`).join(''); }
   // Standalone meeting modal: by
-  const smb=ge('msm-by'); if(smb){ const cv=smb.value; smb.innerHTML='<option value="">— Select —</option>'+TEAM.map(u=>`<option${u===cv?' selected':''}>${esc(u)}</option>`).join(''); }
+  buildAttendeeChecklist();
   // Standalone meeting modal: linked lead
   const sml=ge('msm-lead'); if(sml){ const cv=sml.value; sml.innerHTML='<option value="">— No linked lead —</option>'+[...leads].sort((a,b)=>a.title.localeCompare(b.title)).map(l=>`<option value="${l.id}"${l.id===cv?' selected':''}>${esc(l.title.length>55?l.title.slice(0,55)+'…':l.title)}</option>`).join(''); }
   // Prospect filters
@@ -1863,7 +1884,7 @@ function renderProspectDetail(id){
             <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
               <span style="font-size:.75rem;font-weight:700;color:#333">${esc(m.type||'Activity')}</span>
               <span style="font-size:.69rem;color:#aaa">${m.date||''}</span>
-              <span style="font-size:.69rem;color:#999">by ${esc(m.by||'')}</span>
+              <span style="font-size:.69rem;color:#999">by ${esc((Array.isArray(m.by)?m.by.join(', '):m.by)||'')}</span>
             </div>
             ${m.discussed?`<div style="font-size:.79rem;color:#555;margin-top:.22rem;line-height:1.45">${esc(m.discussed)}</div>`:''}
             ${m.outcome  ?`<div style="font-size:.76rem;color:#666;margin-top:.12rem;font-style:italic">${esc(m.outcome)}</div>`:''}
@@ -2059,24 +2080,60 @@ function saveCon(){
 }
 
 // ── STANDALONE MEETINGS ───────────────────────────────────────────────────
+// ── Standalone meeting helpers ─────────────────────────────────────────────
+function buildAttendeeChecklist(){
+  const el = ge('msm-by-list');
+  if(!el) return;
+  el.innerHTML = TEAM.map(u =>
+    `<label class="crm-attendee-item"><input type="checkbox" value="${esc(u)}"> ${esc(u)}</label>`
+  ).join('');
+}
+function getSelectedAttendees(){
+  const el = ge('msm-by-list');
+  if(!el) return [];
+  return [...el.querySelectorAll('input[type=checkbox]:checked')].map(cb => cb.value);
+}
+function setSelectedAttendees(by){
+  const el = ge('msm-by-list');
+  if(!el) return;
+  const names = Array.isArray(by) ? by : (by ? [by] : []);
+  el.querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = names.includes(cb.value); });
+}
+function smtgStatusChanged(){
+  const scheduled = gv('msm-status') === 'Scheduled';
+  const hasId = !!gv('msm-id');
+  ge('msm-title').textContent = scheduled
+    ? (hasId ? 'Edit Scheduled Meeting' : 'Schedule Meeting')
+    : (hasId ? 'Edit Meeting' : 'Log Meeting');
+  const disc = ge('msm-disc-section');
+  if(disc) disc.style.display = scheduled ? 'none' : '';
+}
+
 function renderSMtgs(){
   const q=gv('sm-q').toLowerCase(), fa=gv('sm-fna'), ft=gv('sm-ftype'), t=today();
   let rows=[...smtgs].filter(m=>{
-    if(fa&&m.by!==fa) return false;
+    if(fa){ const att=Array.isArray(m.by)?m.by:(m.by?[m.by]:[]); if(!att.includes(fa)) return false; }
     if(ft&&m.type!==ft) return false;
     if(q&&![m.company,m.person,m.discussed,m.projects,m.nextAction,m.outcome].join(' ').toLowerCase().includes(q)) return false;
     return true;
-  }).sort((a,b)=>b.date.localeCompare(a.date));
+  }).sort((a,b)=>{
+    const as=(a.status||'Completed')==='Scheduled', bs=(b.status||'Completed')==='Scheduled';
+    if(as!==bs) return as?-1:1;
+    return b.date.localeCompare(a.date);
+  });
 
   ge('smtg-tbody').innerHTML = rows.length ? rows.map(m=>{
     const linkedLead = m.leadId ? leads.find(l=>l.id===m.leadId) : null;
     const overdue = m.nextDate && m.nextDate < t;
+    const scheduled = (m.status||'Completed')==='Scheduled';
+    const byStr = Array.isArray(m.by)?m.by.join(', '):(m.by||'—');
     return `<tr style="cursor:pointer;font-size:.81rem" onclick="openSMtgModal('${m.id}')">
-      <td style="white-space:nowrap;color:#555;font-size:.77rem">${m.date||'—'}</td>
+      <td style="white-space:nowrap;color:#555;font-size:.77rem">${m.date||'—'}<br><span class="crm-status-badge crm-status-${scheduled?'scheduled':'completed'}">${scheduled?'Upcoming':'Completed'}</span></td>
       <td style="font-weight:600">${esc(m.company||'—')}</td>
       <td style="font-size:.79rem">${esc(m.person||'—')}</td>
       <td style="font-size:.76rem;color:#888">${m.phone?`<a href="tel:${esc(m.phone)}" onclick="event.stopPropagation()" style="color:var(--blue)">${esc(m.phone)}</a>`:'—'}</td>
       <td style="font-size:.76rem">${m.email?`<a href="mailto:${esc(m.email)}" onclick="event.stopPropagation()" style="color:var(--blue)">${esc(m.email)}</a>`:'—'}</td>
+      <td style="font-size:.75rem;color:#555;max-width:130px">${esc(byStr.length>35?byStr.slice(0,35)+'…':byStr)}</td>
       <td style="font-size:.76rem;color:#444;max-width:200px">${esc((m.discussed||'').slice(0,55))}${(m.discussed||'').length>55?'…':''}</td>
       <td style="font-size:.76rem;max-width:160px">${linkedLead?`<span class="pb p-${linkedLead.priority}" style="font-size:.6rem;margin-right:3px">${linkedLead.priority}</span><span style="color:#555">${esc(linkedLead.title.slice(0,30))}${linkedLead.title.length>30?'…':''}</span>`:esc((m.projects||'').slice(0,40))+(m.projects||'').length>40?'…':''}</td>
       <td style="font-size:.76rem;white-space:nowrap;color:${overdue?'#c62828':'#888'}">${m.nextDate?`${overdue?'<i class="fa fa-exclamation-circle me-1"></i>':''}${m.nextDate}`:'—'}</td>
@@ -2084,19 +2141,19 @@ function renderSMtgs(){
       <td><button onclick="event.stopPropagation();confirmDel('smtg','${m.id}')" style="background:none;border:none;color:#ddd;cursor:pointer;padding:.1rem .3rem"><i class="fa fa-times"></i></button></td>
     </tr>`;
   }).join('')
-  : `<tr><td colspan="10"><div class="es"><i class="fa fa-handshake"></i>No meetings logged yet.<br><small>Click "Log Meeting" to add your first one.</small></div></td></tr>`;
+  : `<tr><td colspan="11"><div class="es"><i class="fa fa-handshake"></i>No meetings logged yet.<br><small>Click "Log Meeting" to add your first one.</small></div></td></tr>`;
   ge('smtg-ftr').textContent = `${rows.length} meeting${rows.length===1?'':'s'}`;
 }
 
 function openSMtgModal(id){
   populateSel();
   const m = id ? smtgs.find(x=>x.id===id) : null;
-  ge('msm-title').textContent = m ? 'Edit Meeting' : 'Log Meeting';
   sv('msm-id', m?.id||'');
   sv('msm-prospect', m?.prospectId||'');
   sv('msm-date', m?.date || today());
   sv('msm-type', m?.type || 'In-Person Meeting');
-  sv('msm-by',   m?.by   || curUser);
+  sv('msm-status', m?.status || 'Completed');
+  setSelectedAttendees(m?.by || curUser);
   sv('msm-lead', m?.leadId || '');
   sv('msm-company',  m?.company   || '');
   sv('msm-person',   m?.person    || '');
@@ -2107,6 +2164,7 @@ function openSMtgModal(id){
   sv('msm-outcome',  m?.outcome   || '');
   sv('msm-na',       m?.nextAction|| '');
   sv('msm-nd',       m?.nextDate  || '');
+  smtgStatusChanged();
   bootstrap.Modal.getOrCreateInstance(ge('mSMtg')).show();
 }
 
@@ -2119,7 +2177,8 @@ function saveSMtg(){
     id: id||uid(),
     date:       gv('msm-date'),
     type:       gv('msm-type'),
-    by:         gv('msm-by'),
+    by:         getSelectedAttendees(),
+    status:     gv('msm-status'),
     user_id:    sbSession?.user?.id || null,
     leadId:     gv('msm-lead'),
     prospectId: prospectId,
@@ -2549,7 +2608,7 @@ function renderDigest(){
     const myOver   = myLeads.filter(l=>l.nextActionDate && l.nextActionDate < t);
     const myCold   = myLeads.filter(l=>!l.updated || l.updated < d30);
     const myNoAct  = myLeads.filter(l=>!l.nextAction);
-    const myMtgs   = allMtgs.filter(m => m.by === rep && (m.date||'') >= wkMon);
+    const myMtgs   = allMtgs.filter(m => { const att=Array.isArray(m.by)?m.by:(m.by?[m.by]:[]); return att.includes(rep) && (m.date||'') >= wkMon; });
     const health   = myOver.length===0 && myCold.length===0 ? 'green'
                    : myOver.length<=1 && myCold.length<=2 ? 'amber' : 'red';
     const hColor   = {green:'#2e7d32',amber:'#f57f17',red:'#c62828'}[health];
@@ -2965,7 +3024,7 @@ async function renderGoals(){
       const myMtgs  = allMtgs.filter(m=>{
         if(!(m.date||'').startsWith(String(yr))) return false;
         if(repUid && m.user_id) return m.user_id === repUid; // UUID match (reliable)
-        return m.by === rep; // name fallback for old records without UUID
+        const att=Array.isArray(m.by)?m.by:(m.by?[m.by]:[]); return att.includes(rep); // name fallback for old records without UUID
       }).length;
       const myProps = leads.filter(l=>l.assigned===rep&&l.statusHistory&&l.statusHistory.some(h=>h.to==='Proposal Sent'&&h.date.startsWith(String(yr)))).length;
       const myWon   = leads.filter(l=>l.assigned===rep&&l.status==='Won'&&(l.updated||'').startsWith(String(yr))).length;
