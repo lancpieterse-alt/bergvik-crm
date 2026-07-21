@@ -1083,6 +1083,7 @@ const REP_METRICS = [
   { key:'calls',         label:'Calls',                 icon:'fa-phone',             col:'#2e7d32' },
   { key:'demo_days',     label:'Demo Days',             icon:'fa-desktop',           col:'#6a1b9a' },
   { key:'trade_shows',   label:'Trade Shows',           icon:'fa-store',             col:'#00695c' },
+  { key:'scheduled',     label:'Meetings Scheduled',    icon:'fa-calendar-plus',     col:'#1565c0' },
   { key:'quotes_issued', label:'Proposals Sent',        icon:'fa-file-alt',          col:'#1565c0', phase2:true },
   { key:'projects_won',  label:'Projects Won',          icon:'fa-trophy',            col:'#e65100', phase2:true },
   { key:'value_won_zar', label:'Value Won (R)',         icon:'fa-coins',             col:'#c62828', phase2:true },
@@ -1098,11 +1099,18 @@ function repActuals(userId, repName, yr){
     const att = Array.isArray(m.by) ? m.by : (m.by ? [m.by] : []);
     return att.includes(repName);
   });
+  // Meetings scheduled BY this rep (scheduledBy field; falls back to string by for legacy records)
+  const ytdScheduled = smtgs.filter(m => {
+    if(!(m.date||'').startsWith(String(yr))) return false;
+    const sb = m.scheduledBy || (Array.isArray(m.by) ? null : m.by) || '';
+    return sb === repName;
+  });
   return {
     meetings:    ytd.length,
     calls:       ytd.filter(m => /call|phone/i.test(m.type||'')).length,
     demo_days:   ytd.filter(m => m.type === 'Demo Day').length,
     trade_shows: ytd.filter(m => m.type === 'Trade Show').length,
+    scheduled:   ytdScheduled.length,
   };
 }
 
@@ -2128,7 +2136,7 @@ function renderSMtgs(){
     const scheduled = (m.status||'Completed')==='Scheduled';
     const byStr = Array.isArray(m.by)?m.by.join(', '):(m.by||'—');
     return `<tr style="cursor:pointer;font-size:.81rem" onclick="openSMtgModal('${m.id}')">
-      <td style="white-space:nowrap;color:#555;font-size:.77rem">${m.date||'—'}<br><span class="crm-status-badge crm-status-${scheduled?'scheduled':'completed'}">${scheduled?'Upcoming':'Completed'}</span></td>
+      <td style="white-space:nowrap;color:#555;font-size:.77rem">${m.date||'—'}<br><span class="crm-status-badge crm-status-${scheduled?'scheduled':'completed'}">${scheduled?'Upcoming':'Completed'}</span>${m.scheduledBy?`<br><span style="font-size:.65rem;color:#aaa">by ${esc(m.scheduledBy)}</span>`:''}</td>
       <td style="font-weight:600">${esc(m.company||'—')}</td>
       <td style="font-size:.79rem">${esc(m.person||'—')}</td>
       <td style="font-size:.76rem;color:#888">${m.phone?`<a href="tel:${esc(m.phone)}" onclick="event.stopPropagation()" style="color:var(--blue)">${esc(m.phone)}</a>`:'—'}</td>
@@ -2179,6 +2187,7 @@ function saveSMtg(){
     type:       gv('msm-type'),
     by:         getSelectedAttendees(),
     status:     gv('msm-status'),
+    scheduledBy: curUser || '',
     user_id:    sbSession?.user?.id || null,
     leadId:     gv('msm-lead'),
     prospectId: prospectId,
@@ -2193,7 +2202,7 @@ function saveSMtg(){
     nextDate:   gv('msm-nd'),
     created:    nowStr(),
   };
-  if(id){ const i=smtgs.findIndex(x=>x.id===id); d.created=smtgs[i].created; smtgs[i]=d; }
+  if(id){ const i=smtgs.findIndex(x=>x.id===id); d.created=smtgs[i].created; d.scheduledBy=smtgs[i].scheduledBy||curUser; smtgs[i]=d; }
   else { smtgs.unshift(d); }
   save(); sbPut('smtgs', d).catch(console.error);
   bootstrap.Modal.getOrCreateInstance(ge('mSMtg')).hide();
