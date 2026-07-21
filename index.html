@@ -730,6 +730,8 @@
               <option value="Completed">Completed</option>
               <option value="Scheduled">Scheduled</option>
             </select>
+            <label class="form-label">Scheduled By</label>
+            <select class="form-select mb-2" id="msm-scheduled-by"></select>
             <label class="form-label">Link to Lead (optional)</label>
             <select class="form-select" id="msm-lead"><option value="">— No linked lead —</option></select>
           </div>
@@ -1313,6 +1315,8 @@ function populateSel(){
   const smfa=ge('sm-fna'); if(smfa){ const cv=smfa.value; smfa.innerHTML='<option value="">All Attendees</option>'+TEAM.map(u=>`<option${u===cv?' selected':''}>${esc(u)}</option>`).join(''); }
   // Standalone meeting modal: by
   buildAttendeeChecklist();
+  // Standalone meeting modal: scheduled by
+  const msb=ge('msm-scheduled-by'); if(msb){ const cv=msb.value; msb.innerHTML='<option value="">— Select —</option>'+TEAM.map(u=>`<option${u===cv?' selected':''}>${esc(u)}</option>`).join(''); }
   // Standalone meeting modal: linked lead
   const sml=ge('msm-lead'); if(sml){ const cv=sml.value; sml.innerHTML='<option value="">— No linked lead —</option>'+[...leads].sort((a,b)=>a.title.localeCompare(b.title)).map(l=>`<option value="${l.id}"${l.id===cv?' selected':''}>${esc(l.title.length>55?l.title.slice(0,55)+'…':l.title)}</option>`).join(''); }
   // Prospect filters
@@ -2161,6 +2165,7 @@ function openSMtgModal(id){
   sv('msm-date', m?.date || today());
   sv('msm-type', m?.type || 'In-Person Meeting');
   sv('msm-status', m?.status || 'Completed');
+  sv('msm-scheduled-by', m?.scheduledBy || curUser);
   setSelectedAttendees(m?.by || curUser);
   sv('msm-lead', m?.leadId || '');
   sv('msm-company',  m?.company   || '');
@@ -2187,7 +2192,7 @@ function saveSMtg(){
     type:       gv('msm-type'),
     by:         getSelectedAttendees(),
     status:     gv('msm-status'),
-    scheduledBy: curUser || '',
+    scheduledBy: gv('msm-scheduled-by') || curUser || '',
     user_id:    sbSession?.user?.id || null,
     leadId:     gv('msm-lead'),
     prospectId: prospectId,
@@ -2202,7 +2207,7 @@ function saveSMtg(){
     nextDate:   gv('msm-nd'),
     created:    nowStr(),
   };
-  if(id){ const i=smtgs.findIndex(x=>x.id===id); d.created=smtgs[i].created; d.scheduledBy=smtgs[i].scheduledBy||curUser; smtgs[i]=d; }
+  if(id){ const i=smtgs.findIndex(x=>x.id===id); d.created=smtgs[i].created; smtgs[i]=d; }
   else { smtgs.unshift(d); }
   save(); sbPut('smtgs', d).catch(console.error);
   bootstrap.Modal.getOrCreateInstance(ge('mSMtg')).hide();
