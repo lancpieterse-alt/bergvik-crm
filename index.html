@@ -3528,7 +3528,7 @@ sb.auth.onAuthStateChange(async (event, session) => {
     } catch(_e) { TEAM = [...TEAM_FALLBACK]; }
     await loadAll();
     if(ge('login-overlay')) ge('login-overlay').style.display = 'none';
-    showView('dashboard');
+    if(event==='SIGNED_IN'||event==='INITIAL_SESSION') showView('dashboard');
   } else {
     ge('recovery-overlay').style.display = 'none';
     TEAM = [...TEAM_FALLBACK];
