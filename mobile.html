@@ -351,10 +351,14 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
     <div class="vbody">
       <div id="pro-msg" class="save-msg"></div>
 
-      <button class="btn btn-ghost" id="pro-scan-btn" style="margin-bottom:.85rem" onclick="ge('pro-scan-input').click()">
+      <button class="btn btn-ghost" id="pro-scan-btn" style="margin-bottom:.5rem" onclick="ge('pro-scan-input').click()">
         <i class="fa-solid fa-camera"></i> Scan business card
       </button>
       <input type="file" id="pro-scan-input" accept="image/*" capture="environment" style="display:none" onchange="mHandleCardScan(this)">
+      <button class="btn btn-ghost" id="pro-upload-btn" style="margin-bottom:.85rem" onclick="ge('pro-upload-input').click()">
+        <i class="fa-solid fa-image"></i> Upload from photos
+      </button>
+      <input type="file" id="pro-upload-input" accept="image/*" style="display:none" onchange="mHandleCardScan(this)">
 
       <div class="field">
         <label class="lbl">Contact name</label>
@@ -1017,6 +1021,7 @@ async function mHandleCardScan(input){
   if(!file) return;
   if(!navigator.onLine){ showToast('No connection — card scan needs internet'); return; }
   setBtn('pro-scan-btn', true, '<span class="spin"></span> Reading card…');
+  const _ub = ge('pro-upload-btn'); if(_ub) _ub.disabled = true;
   setMsg('pro-msg','',null);
   try{
     const { dataUrl, blob } = await _mCompress(file, 1600, 0.8);
@@ -1049,6 +1054,7 @@ async function mHandleCardScan(input){
     setMsg('pro-msg', (err && err.message) ? err.message : 'Could not read the card — enter details manually.', 'err');
   }finally{
     setBtn('pro-scan-btn', false, '<i class="fa-solid fa-camera"></i> Scan business card');
+    if(_ub) _ub.disabled = false;
   }
 }
 function _mCompress(file, maxEdge, quality){
