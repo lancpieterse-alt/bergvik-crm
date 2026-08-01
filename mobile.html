@@ -402,6 +402,19 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
         <label class="lbl">Where you met</label>
         <input type="text" id="p-metat" placeholder="e.g. Big 5 Construct Kenya — stand 42" autocomplete="off">
       </div>
+      <div class="field">
+        <label class="lbl">Next action</label>
+        <select id="p-na">
+          <option value="">Select…</option>
+          <option>Follow up call</option>
+          <option>Send brochure</option>
+          <option>Email more info</option>
+          <option>Setup coffee / meeting</option>
+          <option>Quote</option>
+          <option>Demo Day</option>
+          <option>Other</option>
+        </select>
+      </div>
       <div class="field" id="p-card-row" style="display:none">
         <label class="lbl">Business card</label>
         <a id="p-card-link" href="#" target="_blank" rel="noopener"><img id="p-cardthumb" src="" alt="Business card" style="max-width:100%;border:1px solid #ddd;border-radius:8px;display:block"></a>
@@ -927,41 +940,42 @@ async function saveProspect(){
   const phone= ge('p-phone').value.trim();
   const email= ge('p-email').value.trim();
   const website = ge('p-website').value.trim();
-  const src  = ge('p-source').value || 'mobile';
+  const src  = ge('p-source').value || '';
   const metAt= ge('p-metat').value.trim();
+  const nextAction = ge('p-na').value;
   const cardImage = ge('p-cardimg').value || '';
   const notes= ge('p-notes').value.trim();
 
-  // Full object mirrors the desktop CRM prospect shape so scanned contacts show everywhere
+  // Full object mirrors the desktop CRM prospect shape (desktop reads the data blob)
   const full = {
     id, name, company, type, phone, email, website, source: src, metAt, cardImage, notes,
     role:'', priority:'WARM', status:'To Contact', region:'', assigned:'',
-    nextAction:'', nextActionDate:'', created: now, updated: now, deleted:false, statusHistory:[]
+    nextAction: nextAction||'', nextActionDate:'', created: now, updated: now, deleted:false, statusHistory:[]
   };
-  // Write BOTH the flat columns (phone app reads these) and the data blob (desktop CRM reads this)
+  // Flat columns kept IDENTICAL to the original working insert (no flat id; source stays 'mobile')
+  // to avoid any column type/constraint issues — all the extra detail lives in the data blob.
   const rec = {
-    id,
     name:    name  || null,
     company: company,
     type:    type  || null,
     phone:   phone || null,
     email:   email || null,
     notes:   notes || null,
-    source:  src,
     user_id: session?.user?.id || null,
+    source:  'mobile',
     data:    full,
   };
 
   setBtn('pro-save-btn', true, '<span class="spin"></span> Saving…');
   setMsg('pro-msg', '', null);
 
-  let saved = false;
+  let saved = false, errMsg = '';
   if(navigator.onLine){
     try {
       const { error } = await sb.from('prospects').insert(rec);
       if(error) throw error;
       saved = true;
-    } catch(e){ console.error('Prospect save error:', e); }
+    } catch(e){ errMsg = (e && e.message) ? e.message : String(e); console.error('Prospect save error:', e); }
   }
 
   setBtn('pro-save-btn', false, '<i class="fa-solid fa-user-plus"></i> Add Prospect');
@@ -974,7 +988,7 @@ async function saveProspect(){
   } else {
     enqueue('prospect', rec);
     setMsg('pro-msg', navigator.onLine
-      ? 'Save failed — queued. Tap Retry on home screen when back online.'
+      ? ('Save failed: ' + (errMsg || 'unknown error') + ' — queued.')
       : 'No connection — queued. Will sync automatically when online.', 'err');
   }
 }
@@ -999,7 +1013,7 @@ function resetLogForm(){
 }
 function resetProspectForm(){
   ['p-name','p-company','p-phone','p-email','p-notes','p-website','p-metat','p-cardimg'].forEach(id => ge(id).value='');
-  ge('p-type').value=''; ge('p-source').value=''; ge('p-company').style.borderColor='';
+  ge('p-type').value=''; ge('p-source').value=''; ge('p-na').value=''; ge('p-company').style.borderColor='';
   const cr=ge('p-card-row'); if(cr) cr.style.display='none';
   setMsg('pro-msg','',null);
 }
