@@ -385,8 +385,31 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
         <input type="email" id="p-email" placeholder="email@company.com" autocomplete="off">
       </div>
       <div class="field">
+        <label class="lbl">Website</label>
+        <input type="text" id="p-website" placeholder="www.company.com" autocomplete="off">
+      </div>
+      <div class="field">
+        <label class="lbl">Source</label>
+        <select id="p-source">
+          <option value="">Select…</option>
+          <option>Trade show</option>
+          <option>Network event</option>
+          <option>Business Function</option>
+          <option>Other</option>
+        </select>
+      </div>
+      <div class="field">
+        <label class="lbl">Where you met</label>
+        <input type="text" id="p-metat" placeholder="e.g. Big 5 Construct Kenya — stand 42" autocomplete="off">
+      </div>
+      <div class="field" id="p-card-row" style="display:none">
+        <label class="lbl">Business card</label>
+        <a id="p-card-link" href="#" target="_blank" rel="noopener"><img id="p-cardthumb" src="" alt="Business card" style="max-width:100%;border:1px solid #ddd;border-radius:8px;display:block"></a>
+        <input type="hidden" id="p-cardimg">
+      </div>
+      <div class="field">
         <label class="lbl">Notes</label>
-        <textarea id="p-notes" placeholder="How you met, products of interest, context…"></textarea>
+        <textarea id="p-notes" placeholder="What you discussed, products of interest, context…"></textarea>
       </div>
 
       <button class="btn btn-success" id="pro-save-btn" onclick="saveProspect()">
@@ -897,15 +920,36 @@ async function saveProspect(){
   const company = ge('p-company').value.trim();
   if(!company){ ge('p-company').style.borderColor='var(--red)'; ge('p-company').focus(); return; }
 
+  const now  = new Date().toISOString();
+  const id   = Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+  const name = ge('p-name').value.trim();
+  const type = ge('p-type').value;
+  const phone= ge('p-phone').value.trim();
+  const email= ge('p-email').value.trim();
+  const website = ge('p-website').value.trim();
+  const src  = ge('p-source').value || 'mobile';
+  const metAt= ge('p-metat').value.trim();
+  const cardImage = ge('p-cardimg').value || '';
+  const notes= ge('p-notes').value.trim();
+
+  // Full object mirrors the desktop CRM prospect shape so scanned contacts show everywhere
+  const full = {
+    id, name, company, type, phone, email, website, source: src, metAt, cardImage, notes,
+    role:'', priority:'WARM', status:'To Contact', region:'', assigned:'',
+    nextAction:'', nextActionDate:'', created: now, updated: now, deleted:false, statusHistory:[]
+  };
+  // Write BOTH the flat columns (phone app reads these) and the data blob (desktop CRM reads this)
   const rec = {
-    name:    ge('p-name').value.trim()  || null,
+    id,
+    name:    name  || null,
     company: company,
-    type:    ge('p-type').value         || null,
-    phone:   ge('p-phone').value.trim() || null,
-    email:   ge('p-email').value.trim() || null,
-    notes:   ge('p-notes').value.trim() || null,
-    user_id: session?.user?.id          || null,
-    source:  'mobile',
+    type:    type  || null,
+    phone:   phone || null,
+    email:   email || null,
+    notes:   notes || null,
+    source:  src,
+    user_id: session?.user?.id || null,
+    data:    full,
   };
 
   setBtn('pro-save-btn', true, '<span class="spin"></span> Saving…');
@@ -954,8 +998,9 @@ function resetLogForm(){
   setMsg('log-msg', '', null);
 }
 function resetProspectForm(){
-  ['p-name','p-company','p-phone','p-email','p-notes'].forEach(id => ge(id).value='');
-  ge('p-type').value=''; ge('p-company').style.borderColor='';
+  ['p-name','p-company','p-phone','p-email','p-notes','p-website','p-metat','p-cardimg'].forEach(id => ge(id).value='');
+  ge('p-type').value=''; ge('p-source').value=''; ge('p-company').style.borderColor='';
+  const cr=ge('p-card-row'); if(cr) cr.style.display='none';
   setMsg('pro-msg','',null);
 }
 
@@ -989,16 +1034,10 @@ async function mHandleCardScan(input){
     if(f.company) ge('p-company').value = f.company;
     if(f.phone)   ge('p-phone').value   = f.phone;
     if(f.email)   ge('p-email').value   = f.email;
-    // Phone form has no title/website/source fields — fold them into Notes so nothing is lost
-    const extra = [];
-    if(f.title)   extra.push('Title: ' + f.title);
-    if(f.website) extra.push('Website: ' + f.website);
-    extra.push('Source: Trade show');
-    extra.push('Met at: ');
-    extra.push('Discussed: ');
-    if(cardUrl)   extra.push('Card image: ' + cardUrl);
-    const cur = ge('p-notes').value.trim();
-    ge('p-notes').value = (cur ? cur + '\n' : '') + extra.join('\n');
+    if(f.website) ge('p-website').value = f.website;
+    ge('p-source').value = 'Trade show';
+    if(f.title){ const cur = ge('p-notes').value.trim(); ge('p-notes').value = (cur ? cur+'\n' : '') + 'Title: ' + f.title; }
+    if(cardUrl){ ge('p-cardimg').value = cardUrl; ge('p-cardthumb').src = cardUrl; ge('p-card-link').href = cardUrl; ge('p-card-row').style.display = ''; }
     showToast('Card read ✓ — check the details');
   }catch(err){
     setMsg('pro-msg', (err && err.message) ? err.message : 'Could not read the card — enter details manually.', 'err');

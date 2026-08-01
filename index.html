@@ -1195,7 +1195,7 @@ async function loadAll(){
   smtgs    = (s.data||[]).map(r=>r.data).filter(r=>!r.deleted);
   contacts = (c.data||[]).map(r=>r.data).filter(r=>!r.deleted);
   targets  = tg.data || [];
-  prospects = (pr.data||[]).map(r=>r.data).filter(r=>!r.deleted);
+  prospects = (pr.data||[]).map(r=>r.data).filter(r=>r && !r.deleted);
   // Apply auto-assignment rules to any unassigned leads and sync back
   const _unBefore = leads.filter(x=>!x.assigned).length;
   leads.forEach(x=>autoAssign(x));
