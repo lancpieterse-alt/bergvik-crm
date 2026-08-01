@@ -351,6 +351,11 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
     <div class="vbody">
       <div id="pro-msg" class="save-msg"></div>
 
+      <button class="btn btn-ghost" id="pro-scan-btn" style="margin-bottom:.85rem" onclick="ge('pro-scan-input').click()">
+        <i class="fa-solid fa-camera"></i> Scan business card
+      </button>
+      <input type="file" id="pro-scan-input" accept="image/*" capture="environment" style="display:none" onchange="mHandleCardScan(this)">
+
       <div class="field">
         <label class="lbl">Contact name</label>
         <input type="text" id="p-name" placeholder="First and last name" autocomplete="off">
@@ -952,6 +957,68 @@ function resetProspectForm(){
   ['p-name','p-company','p-phone','p-email','p-notes'].forEach(id => ge(id).value='');
   ge('p-type').value=''; ge('p-company').style.borderColor='';
   setMsg('pro-msg','',null);
+}
+
+// ── BUSINESS CARD SCAN ───────────────────────────────────────────────────────
+async function mHandleCardScan(input){
+  const file = input.files && input.files[0];
+  input.value = '';
+  if(!file) return;
+  if(!navigator.onLine){ showToast('No connection — card scan needs internet'); return; }
+  setBtn('pro-scan-btn', true, '<span class="spin"></span> Reading card…');
+  setMsg('pro-msg','',null);
+  try{
+    const { dataUrl, blob } = await _mCompress(file, 1600, 0.8);
+    // Store the card image (non-fatal if it fails)
+    let cardUrl = '';
+    try{
+      const path = 'cards/' + Date.now().toString(36) + Math.random().toString(36).slice(2,7) + '.jpg';
+      const up = await sb.storage.from('Card Images').upload(path, blob, { contentType:'image/jpeg', upsert:false });
+      if(!up.error){ cardUrl = sb.storage.from('Card Images').getPublicUrl(path).data.publicUrl; }
+    }catch(_e){}
+    // Read the card via the secure edge function
+    const { data, error } = await sb.functions.invoke('card-scan', { body:{ imageBase64:dataUrl, mediaType:'image/jpeg' } });
+    if(error){
+      let d='';
+      try{ if(error.context && typeof error.context.text==='function'){ const raw=await error.context.text(); try{ const b=JSON.parse(raw); d=(b.error||'')+(b.detail?(' — '+b.detail):''); }catch(_){ d=raw.slice(0,200); } } }catch(_e){}
+      throw new Error(d || error.message || 'Edge Function error');
+    }
+    if(!data || data.error) throw new Error((data && data.error) || 'Could not read card');
+    const f = data.fields || {};
+    if(f.name)    ge('p-name').value    = f.name;
+    if(f.company) ge('p-company').value = f.company;
+    if(f.phone)   ge('p-phone').value   = f.phone;
+    if(f.email)   ge('p-email').value   = f.email;
+    // Phone form has no title/website/source fields — fold them into Notes so nothing is lost
+    const extra = [];
+    if(f.title)   extra.push('Title: ' + f.title);
+    if(f.website) extra.push('Website: ' + f.website);
+    extra.push('Source: Trade show');
+    extra.push('Met at: ');
+    extra.push('Discussed: ');
+    if(cardUrl)   extra.push('Card image: ' + cardUrl);
+    const cur = ge('p-notes').value.trim();
+    ge('p-notes').value = (cur ? cur + '\n' : '') + extra.join('\n');
+    showToast('Card read ✓ — check the details');
+  }catch(err){
+    setMsg('pro-msg', (err && err.message) ? err.message : 'Could not read the card — enter details manually.', 'err');
+  }finally{
+    setBtn('pro-scan-btn', false, '<i class="fa-solid fa-camera"></i> Scan business card');
+  }
+}
+function _mCompress(file, maxEdge, quality){
+  return new Promise((resolve,reject)=>{
+    const img=new Image(); const url=URL.createObjectURL(file);
+    img.onload=()=>{
+      let w=img.width, h=img.height; const s=Math.min(1, maxEdge/Math.max(w,h));
+      w=Math.round(w*s); h=Math.round(h*s);
+      const c=document.createElement('canvas'); c.width=w; c.height=h;
+      c.getContext('2d').drawImage(img,0,0,w,h); URL.revokeObjectURL(url);
+      c.toBlob(b=>{ if(!b){reject(new Error('Image processing failed'));return;} const fr=new FileReader(); fr.onload=()=>resolve({dataUrl:fr.result,blob:b}); fr.onerror=reject; fr.readAsDataURL(b); },'image/jpeg',quality);
+    };
+    img.onerror=()=>{URL.revokeObjectURL(url); reject(new Error('Could not open the photo'));};
+    img.src=url;
+  });
 }
 
 // ── SERVICE WORKER ──────────────────────────────────────────────────────────
