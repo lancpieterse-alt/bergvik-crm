@@ -952,19 +952,10 @@ async function saveProspect(){
     role:'', priority:'WARM', status:'To Contact', region:'', assigned:'',
     nextAction: nextAction||'', nextActionDate:'', created: now, updated: now, deleted:false, statusHistory:[]
   };
-  // Flat columns kept IDENTICAL to the original working insert (no flat id; source stays 'mobile')
-  // to avoid any column type/constraint issues — all the extra detail lives in the data blob.
-  const rec = {
-    name:    name  || null,
-    company: company,
-    type:    type  || null,
-    phone:   phone || null,
-    email:   email || null,
-    notes:   notes || null,
-    user_id: session?.user?.id || null,
-    source:  'mobile',
-    data:    full,
-  };
+  // The prospects table stores each record as a single JSON blob in "data" (same shape the
+  // desktop CRM uses) — there are no flat columns. Write the desktop shape so it saves AND
+  // shows on the desktop CRM. (The old flat insert never matched the table.)
+  const rec = { id, data: full, updated_at: now };
 
   setBtn('pro-save-btn', true, '<span class="spin"></span> Saving…');
   setMsg('pro-msg', '', null);
