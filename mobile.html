@@ -835,28 +835,46 @@ async function saveActivity(){
   const company = selectedLead?.company || ge('log-company').value.trim();
   if(!company){ setMsg('log-msg', 'Please select or enter a company.', 'err'); ge('log-company').style.display=''; ge('log-company').focus(); return; }
 
+  const id      = Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+  const now     = new Date().toISOString();
+  const dateVal = ge('log-date').value || today();
+  const typeVal = getType();
+  // Full meeting object mirrors the desktop CRM meeting shape (desktop reads the data blob)
+  const full = {
+    id,
+    leadId:    selectedLead?.id || null,
+    leadTitle: (selectedLead && (selectedLead.title || selectedLead.company)) || company,
+    company:   company,
+    date:      dateVal,
+    type:      typeVal,
+    by:        displayName,
+    notes:     ge('log-notes').value.trim()  || '',
+    nextAction:ge('log-na').value.trim()     || '',
+    nextDate:  ge('log-na-date').value        || '',
+    created:   now,
+    deleted:   false,
+  };
+  // Flat columns that actually exist on the meetings table (id, lead_id, user_id, date, type
+  // — used by the KPI counters) plus the data blob. Everything else lives in data.
   const rec = {
-    date:             ge('log-date').value || today(),
-    type:             getType(),
-    by:               displayName,
-    notes:            ge('log-notes').value.trim() || null,
-    next_action:      ge('log-na').value.trim()    || null,
-    next_action_date: ge('log-na-date').value      || null,
-    company:          company,
-    lead_id:          selectedLead?.id || null,
-    user_id:          session?.user?.id || null,
+    id,
+    lead_id: selectedLead?.id || null,
+    user_id: session?.user?.id || null,
+    date:    dateVal,
+    type:    typeVal,
+    data:    full,
   };
 
   setBtn('log-save-btn', true, '<span class="spin"></span> Saving…');
   setMsg('log-msg', '', null);
 
-  let saved = false;
+  let saved = false, errMsg = '';
   if(navigator.onLine){
     try {
       const { error } = await sb.from('meetings').insert(rec);
       if(error) throw error;
       saved = true;
-    } catch(e) { console.error('Activity save error:', e); }
+    } catch(e) { errMsg = (e && e.message) ? e.message : String(e); console.error('Activity save error:', e); }
   }
 
   setBtn('log-save-btn', false, '<i class="fa-solid fa-check"></i> Save Activity');
@@ -870,7 +888,7 @@ async function saveActivity(){
     // NEVER show success when write failed
     enqueue('activity', rec);
     setMsg('log-msg', navigator.onLine
-      ? 'Save failed — queued. Tap Retry on home screen when back online.'
+      ? ('Save failed: ' + (errMsg || 'unknown error') + ' — queued.')
       : 'No connection — queued. Will sync automatically when online.', 'err');
   }
 }
