@@ -200,6 +200,7 @@
     <div class="nav-lnk" id="nl-leads"     onclick="showView('leads')"><i class="fa fa-folder-open"></i>Leads</div>
     <div class="nav-lnk" id="nl-prospects" onclick="showView('prospects')"><i class="fa fa-users"></i>Prospects</div>
     <div class="nav-lnk" id="nl-smtg"      onclick="showView('smtg')"><i class="fa fa-handshake"></i>Meetings</div>
+    <div class="nav-lnk" id="nl-followups" onclick="showView('followups')"><i class="fa fa-clipboard-check"></i>Follow-ups <span id="fu-nav-badge" style="display:none;background:#c62828;color:#fff;border-radius:10px;font-size:.62rem;font-weight:700;padding:.05rem .4rem;margin-left:.25rem"></span></div>
     <div class="nav-lnk" id="nl-pipeline"  onclick="showView('pipeline')"><i class="fa fa-table-columns"></i>Pipeline</div>
     <div class="nav-lnk" id="nl-meetings"  onclick="showView('meetings')"><i class="fa fa-comments"></i>All Activity</div>
     <div class="nav-lnk" id="nl-l2b" onclick="showView('l2b')"><i class="fa fa-satellite-dish"></i>L2B Inbox</div>
@@ -356,6 +357,30 @@
           </table>
         </div>
         <div class="ct-footer" id="smtg-ftr"></div>
+      </div>
+    </div>
+
+    <!-- FOLLOW-UPS DUE -->
+    <div class="view" id="view-followups">
+      <div class="sc">
+        <div class="sc-hdr" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem">
+          <h6 style="margin:0"><i class="fa fa-clipboard-check me-2"></i>Follow-ups Due</h6>
+          <div style="display:flex;gap:.4rem;align-items:center">
+            <label style="font-size:.72rem;color:#999">Owner</label>
+            <select id="fu-fasgn" class="form-select form-select-sm" style="width:180px" onchange="renderFollowupsDue()">
+              <option value="">All Reps</option>
+            </select>
+          </div>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="ct">
+            <thead><tr>
+              <th>Due</th><th>Company</th><th>Person</th><th>Next Action</th><th>Instructions</th><th>Owner</th><th></th>
+            </tr></thead>
+            <tbody id="fu-tbody"></tbody>
+          </table>
+        </div>
+        <div class="ct-footer" id="fu-ftr"></div>
       </div>
     </div>
 
@@ -1355,7 +1380,7 @@ async function doLogout(){
 
 // ── NAVIGATION ────────────────────────────────────────────────────────────
 let curView='dashboard', curLead=null;
-const TITLES = {dashboard:'Dashboard',leads:'Leads',smtg:'Meetings',pipeline:'Pipeline',meetings:'All Activity','lead-detail':'Lead Detail',l2b:'L2B Inbox',digest:'Weekly Digest',goals:'Goals',prospects:'Prospects','prospect-detail':'Prospect Detail',mgmt:'Management','rep-targets':'Rep Targets'};
+const TITLES = {dashboard:'Dashboard',leads:'Leads',smtg:'Meetings',followups:'Follow-ups Due',pipeline:'Pipeline',meetings:'All Activity','lead-detail':'Lead Detail',l2b:'L2B Inbox',digest:'Weekly Digest',goals:'Goals',prospects:'Prospects','prospect-detail':'Prospect Detail',mgmt:'Management','rep-targets':'Rep Targets'};
 
 function showView(v){
   window.scrollTo(0,0);
@@ -1370,6 +1395,7 @@ function showView(v){
   if(v==='dashboard')       renderDash();
   if(v==='leads')           renderLeads();
   if(v==='smtg')            renderSMtgs();
+  if(v==='followups')       renderFollowupsDue();
   if(v==='pipeline')        renderPipe();
   if(v==='meetings')        renderMtgs();
   if(v==='l2b')             renderL2B();
@@ -1403,6 +1429,8 @@ function populateSel(){
   const sml=ge('msm-lead'); if(sml){ const cv=sml.value; sml.innerHTML='<option value="">— No linked lead —</option>'+[...leads].sort((a,b)=>a.title.localeCompare(b.title)).map(l=>`<option value="${l.id}"${l.id===cv?' selected':''}>${esc(l.title.length>55?l.title.slice(0,55)+'…':l.title)}</option>`).join(''); }
   // Prospect filters
   const prfa=ge('pr-fasgn'); if(prfa){ const cv=prfa.value; prfa.innerHTML='<option value="">All Reps</option>'+TEAM.map(u=>`<option${u===cv?' selected':''}>${esc(u)}</option>`).join(''); }
+  // Follow-ups Due: owner filter
+  const fufa=ge('fu-fasgn'); if(fufa){ const cv=fufa.value; fufa.innerHTML='<option value="">All Reps</option>'+TEAM.map(u=>`<option${u===cv?' selected':''}>${esc(u)}</option>`).join(''); }
   // Prospect modal: assigned
   const mpas=ge('mp-assigned'); if(mpas){ const cv=mpas.value; mpas.innerHTML='<option value="">— Unassigned —</option>'+TEAM.map(u=>`<option${u===cv?' selected':''}>${esc(u)}</option>`).join(''); }
 }
@@ -1982,7 +2010,7 @@ function renderProspectDetail(id){
             </div>
             ${m.discussed?`<div style="font-size:.79rem;color:#555;margin-top:.22rem;line-height:1.45">${esc(m.discussed)}</div>`:''}
             ${m.outcome  ?`<div style="font-size:.76rem;color:#666;margin-top:.12rem;font-style:italic">${esc(m.outcome)}</div>`:''}
-            ${m.nextAction?`<div style="font-size:.73rem;color:#e65100;margin-top:.15rem;font-weight:600">→ ${esc(m.nextAction)}${m.nextDate?' ('+m.nextDate+')':''}${m.assignedTo?' · <span style="color:#1565c0">'+esc(m.assignedTo)+'</span>':''}</div>`:''}
+            ${m.nextAction?`<div style="font-size:.73rem;margin-top:.15rem;font-weight:600;color:${m.done?'#2e7d32':((m.nextDate&&m.nextDate<t)?'#c62828':'#e65100')}">${m.done?'<i class="fa fa-check-circle me-1"></i>':((m.nextDate&&m.nextDate<t)?'<i class="fa fa-exclamation-circle me-1"></i>':'→ ')}${esc(m.nextAction)}${m.nextDate?' ('+m.nextDate+')':''}${m.assignedTo?' · <span style="color:#1565c0">'+esc(m.assignedTo)+'</span>':''}${m.done?` <span style="color:#2e7d32;font-weight:400">— done by ${esc(m.doneBy||'')}${m.doneDate?' on '+m.doneDate:''}</span>`:` <button onclick="markActionDone('${m.id}')" style="margin-left:.35rem;background:#e8f5e9;border:1px solid #a5d6a7;color:#2e7d32;border-radius:6px;font-size:.67rem;padding:.05rem .4rem;cursor:pointer"><i class="fa fa-check me-1"></i>Mark done</button>`}</div>`:''}
             ${m.followupNote?`<div style="font-size:.72rem;color:#777;margin-top:.1rem;padding-left:.6rem;border-left:2px solid #ffe0b2">${esc(m.followupNote)}</div>`:''}
           </div>
           <button onclick="confirmDel('smtg','${m.id}')" style="background:none;border:none;color:#e0e0e0;cursor:pointer;padding:.1rem .25rem;flex-shrink:0;font-size:.9rem" title="Delete"><i class="fa fa-times"></i></button>
@@ -2027,7 +2055,7 @@ function laResolveProspect(){
     ge('la-prospect-hint').textContent = q ? 'No match — this will be logged as a new company (no prospect link).' : '';
   }
 }
-function openLogAct(prospectId){
+function openLogAct(prospectId, prefill){
   laBuildDatalist(); populateLaSelects();
   sv('la-prospectId',''); sv('la-prospect-q','');
   sv('la-company',''); sv('la-person',''); sv('la-phone',''); sv('la-email','');
@@ -2038,8 +2066,54 @@ function openLogAct(prospectId){
   if(prospectId){
     const p=prospects.find(x=>x.id===prospectId);
     if(p){ sv('la-prospect-q',(p.company||'')+' — '+(p.name||'')); laResolveProspect(); }
+  } else if(prefill){
+    sv('la-company',prefill.company||''); sv('la-person',prefill.person||'');
+    sv('la-phone',prefill.phone||''); sv('la-email',prefill.email||'');
+    if(prefill.company){ sv('la-prospect-q',prefill.company); laResolveProspect(); }
   }
   bootstrap.Modal.getOrCreateInstance(ge('mLogAct')).show();
+}
+
+// Mark a next-action done (records who/when), then offer to log the next activity.
+function markActionDone(id){
+  const m = smtgs.find(x=>x.id===id); if(!m) return;
+  m.done=true; m.doneBy=curUser||''; m.doneDate=today();
+  save(); sbPut('smtgs',m).catch(console.error);
+  if(curView==='prospect-detail') renderProspectDetail(curProspect);
+  if(curView==='smtg')            renderSMtgs();
+  if(curView==='dashboard')       renderDash();
+  if(curView==='followups' && typeof renderFollowupsDue==='function') renderFollowupsDue();
+  setTimeout(()=>{
+    if(confirm('Follow-up marked done ✓\n\nLog the next activity for this contact now?')){
+      if(m.prospectId) openLogAct(m.prospectId);
+      else openLogAct('', {company:m.company, person:m.person, phone:m.phone, email:m.email});
+    }
+  }, 60);
+}
+
+// ── FOLLOW-UPS DUE (open next-actions across all activities) ────────────────
+function renderFollowupsDue(){
+  const t=today();
+  const fa=gv('fu-fasgn')||'';
+  let rows=smtgs.filter(m=>m && !m.deleted && m.nextAction && !m.done);
+  if(fa) rows=rows.filter(m=>(m.assignedTo||'')===fa);
+  rows.sort((a,b)=>(a.nextDate||'9999-99-99').localeCompare(b.nextDate||'9999-99-99'));
+  const overdueCount=rows.filter(m=>m.nextDate && m.nextDate<t).length;
+  const nb=ge('fu-nav-badge'); if(nb){ nb.textContent=overdueCount||''; nb.style.display=overdueCount?'inline-block':'none'; }
+  const tb=ge('fu-tbody'); if(!tb) return;
+  tb.innerHTML = rows.length ? rows.map(m=>{
+    const od=m.nextDate && m.nextDate<t;
+    return `<tr style="font-size:.81rem;${m.prospectId?'cursor:pointer':''}" ${m.prospectId?`onclick="curProspect='${m.prospectId}';showView('prospect-detail')"`:''}>
+      <td style="white-space:nowrap;color:${od?'#c62828':'#555'};font-weight:${od?'700':'400'}">${od?'<i class="fa fa-exclamation-circle me-1"></i>':''}${m.nextDate||'—'}</td>
+      <td style="font-weight:600">${esc(m.company||'—')}</td>
+      <td style="font-size:.79rem">${esc(m.person||'—')}</td>
+      <td style="font-size:.79rem;color:#e65100">${esc(m.nextAction||'')}</td>
+      <td style="font-size:.76rem;color:#666;max-width:240px">${esc(m.followupNote||'')}</td>
+      <td style="font-size:.79rem;color:#1565c0">${esc(m.assignedTo||'—')}</td>
+      <td><button onclick="event.stopPropagation();markActionDone('${m.id}')" class="btn btn-sm" style="background:#e8f5e9;border:1px solid #a5d6a7;color:#2e7d32;font-size:.7rem;padding:.1rem .5rem"><i class="fa fa-check me-1"></i>Done</button></td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="7"><div class="es"><i class="fa fa-check-circle" style="color:#4caf50"></i>No open follow-ups. All caught up!</div></td></tr>`;
+  ge('fu-ftr').textContent = `${rows.length} open follow-up${rows.length===1?'':'s'}${overdueCount?` · ${overdueCount} overdue`:''}`;
 }
 function saveLogAct(){
   const company=gv('la-company').trim();
@@ -2294,7 +2368,7 @@ function renderSMtgs(){
 
   ge('smtg-tbody').innerHTML = rows.length ? rows.map(m=>{
     const linkedLead = m.leadId ? leads.find(l=>l.id===m.leadId) : null;
-    const overdue = m.nextDate && m.nextDate < t;
+    const overdue = m.nextDate && m.nextDate < t && !m.done;
     const scheduled = (m.status||'Completed')==='Scheduled';
     const byStr = Array.isArray(m.by)?m.by.join(', '):(m.by||'—');
     return `<tr style="cursor:pointer;font-size:.81rem" onclick="openSMtgModal('${m.id}')">
@@ -2306,8 +2380,8 @@ function renderSMtgs(){
       <td style="font-size:.75rem;color:#555;max-width:130px">${esc(byStr.length>35?byStr.slice(0,35)+'…':byStr)}</td>
       <td style="font-size:.76rem;color:#444;max-width:200px">${esc((m.discussed||'').slice(0,55))}${(m.discussed||'').length>55?'…':''}</td>
       <td style="font-size:.76rem;max-width:160px">${linkedLead?`<span class="pb p-${linkedLead.priority}" style="font-size:.6rem;margin-right:3px">${linkedLead.priority}</span><span style="color:#555">${esc(linkedLead.title.slice(0,30))}${linkedLead.title.length>30?'…':''}</span>`:esc((m.projects||'').slice(0,40))+(m.projects||'').length>40?'…':''}</td>
-      <td style="font-size:.76rem;white-space:nowrap;color:${overdue?'#c62828':'#888'}">${m.nextDate?`${overdue?'<i class="fa fa-exclamation-circle me-1"></i>':''}${m.nextDate}`:'—'}</td>
-      <td style="font-size:.76rem;color:#e65100;max-width:160px">${esc((m.nextAction||'').slice(0,45))}${(m.nextAction||'').length>45?'…':''}</td>
+      <td style="font-size:.76rem;white-space:nowrap;color:${m.done?'#2e7d32':(overdue?'#c62828':'#888')}">${m.done?`<i class="fa fa-check-circle me-1"></i>Done${m.doneDate?' '+m.doneDate:''}`:(m.nextDate?`${overdue?'<i class="fa fa-exclamation-circle me-1"></i>':''}${m.nextDate}`:'—')}</td>
+      <td style="font-size:.76rem;color:#e65100;max-width:160px">${esc((m.nextAction||'').slice(0,45))}${(m.nextAction||'').length>45?'…':''}${(m.nextAction&&!m.done)?`<br><button onclick="event.stopPropagation();markActionDone('${m.id}')" style="margin-top:.2rem;background:#e8f5e9;border:1px solid #a5d6a7;color:#2e7d32;border-radius:6px;font-size:.66rem;padding:.03rem .35rem;cursor:pointer"><i class="fa fa-check me-1"></i>Mark done</button>`:''}</td>
       <td><button onclick="event.stopPropagation();confirmDel('smtg','${m.id}')" style="background:none;border:none;color:#ddd;cursor:pointer;padding:.1rem .3rem"><i class="fa fa-times"></i></button></td>
     </tr>`;
   }).join('')
@@ -3687,6 +3761,7 @@ sb.auth.onAuthStateChange(async (event, session) => {
       } else { TEAM = [...TEAM_FALLBACK]; }
     } catch(_e) { TEAM = [...TEAM_FALLBACK]; }
     await loadAll();
+    if(typeof renderFollowupsDue==='function') renderFollowupsDue(); // refresh overdue nav badge
     if(ge('login-overlay')) ge('login-overlay').style.display = 'none';
     if((event==='SIGNED_IN'||event==='INITIAL_SESSION') && _navToHome) {
       _navToHome = false;
