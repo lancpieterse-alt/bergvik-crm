@@ -390,7 +390,9 @@
       <div class="sc">
         <div class="sc-hdr" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem">
           <h6 style="margin:0"><i class="fa fa-clipboard-check me-2"></i>Follow-ups Due</h6>
-          <div style="display:flex;gap:.4rem;align-items:center">
+          <div style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">
+            <input type="text" id="fu-q" placeholder="🔍 Search action, person, company…" oninput="renderFollowupsDue()" style="font-size:.79rem;padding:.32rem .6rem;border:1px solid #dde3ec;border-radius:6px;background:#fff;width:230px">
+            <button class="btn btn-sm btn-outline-secondary" onclick="migrateLegacyNextActions()" title="One-time: split old embedded next-actions into their own to-dos"><i class="fa fa-wand-magic-sparkles me-1"></i>Fix legacy follow-ups</button>
             <label style="font-size:.72rem;color:#999">Owner</label>
             <select id="fu-fasgn" class="form-select form-select-sm" style="width:180px" onchange="renderFollowupsDue()">
               <option value="">All Reps</option>
@@ -903,10 +905,11 @@
   <div class="modal-dialog modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header" style="background:var(--blue);color:#fff;padding:.75rem 1.1rem">
-        <h6 class="modal-title">Add To-Do / Next Action</h6>
+        <h6 class="modal-title" id="na-title">Add To-Do / Next Action</h6>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
+        <input type="hidden" id="na-id">
         <input type="hidden" id="na-prospectId">
         <input type="hidden" id="na-company">
         <input type="hidden" id="na-person">
@@ -927,7 +930,8 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-light btn-sm" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-sm btn-bv" onclick="saveNextAct()"><i class="fa fa-plus me-1"></i>Add To-Do</button>
+        <button class="btn btn-sm btn-success" id="na-done-btn" style="display:none" onclick="markActionDone(gv('na-id'));bootstrap.Modal.getOrCreateInstance(ge('mNextAct')).hide();"><i class="fa fa-check me-1"></i>Mark done</button>
+        <button class="btn btn-sm btn-bv" id="na-save-btn" onclick="saveNextAct()"><i class="fa fa-plus me-1"></i>Add To-Do</button>
       </div>
     </div>
   </div>
@@ -1249,10 +1253,10 @@ function prospectOpenAction(p){
   const acts = smtgs.filter(m=>m && !m.deleted && m.prospectId===p.id);
   const open = acts.filter(m=> (catOf(m)==='Activity' && m.done===false) || (m.nextAction && !m.done))
     .sort((a,b)=>((b.nextDate||b.date||'')+'').localeCompare((a.nextDate||a.date||'')+''))[0];
-  if(open)        return {action: open.nextAction||normType(open.type), date: open.nextDate||open.date||'', state:'open'};
-  if(acts.length) return {action:'', date:'', state:'clear'};   // touches logged, nothing pending
-  if(p.nextAction)return {action:p.nextAction, date:p.nextActionDate||'', state:'legacy'};
-  return {action:'', date:'', state:'none'};
+  if(open)        return {id: (open.category==='Activity'&&open.done===false)?open.id:null, action: open.nextAction||normType(open.type), date: open.nextDate||open.date||'', state:'open'};
+  if(acts.length) return {id:null, action:'', date:'', state:'clear'};   // touches logged, nothing pending
+  if(p.nextAction)return {id:null, action:p.nextAction, date:p.nextActionDate||'', state:'legacy'};
+  return {id:null, action:'', date:'', state:'none'};
 }
 
 // ── REP PERFORMANCE METRICS ───────────────────────────────────────────────
@@ -2066,7 +2070,7 @@ function renderProspectDetail(id){
             </div>
             <div style="border-top:1px solid #f0f2f5;padding-top:.7rem">
               <div style="font-size:.67rem;color:#aaa;text-transform:uppercase;font-weight:700;margin-bottom:.3rem">Next Action</div>
-              <div style="font-size:.83rem;font-weight:600;color:${_oa.action?'#e65100':'#2e7d32'}">${_oa.action?esc(_oa.action):(_oa.state==='clear'?'✓ No open next action':'—')}</div>
+              <div style="font-size:.83rem;font-weight:600;color:${_oa.action?'#e65100':'#2e7d32'}">${_oa.action?(_oa.id?`<span style="cursor:pointer;text-decoration:underline dotted" title="View / edit this to-do" onclick="openNextAct('${p.id}',null,'${_oa.id}')">${esc(_oa.action)}</span>`:esc(_oa.action)):(_oa.state==='clear'?'✓ No open next action':'—')}</div>
               <div style="font-size:.76rem;color:${overdue?'#c62828':'#999'};margin-top:.25rem">${_oa.action?(_oa.date?(overdue?'<i class="fa fa-circle-exclamation me-1"></i>':'')+_oa.date:'No date set'):(_oa.state==='clear'?'all follow-ups handled':'')}</div>
               <button class="btn btn-sm btn-outline-primary" style="margin-top:.6rem" onclick="openNextAct('${p.id}')"><i class="fa fa-plus me-1"></i>Add To-Do</button>
             </div>
@@ -2171,18 +2175,37 @@ function openLogAct(prospectId, prefill, mode){
 function populateNaSelect(){
   const as=ge('na-assigned'); if(as){ const cv=as.value||curUser; as.innerHTML='<option value="">— Unassigned —</option>'+TEAM.map(u=>`<option${u===cv?' selected':''}>${esc(u)}</option>`).join(''); }
 }
-function openNextAct(prospectId, prefill){
+function openNextAct(prospectId, prefill, existingId){
   populateNaSelect();
+  const ex = existingId ? smtgs.find(x=>x.id===existingId) : null;
   const p = prospectId ? prospects.find(x=>x.id===prospectId) : null;
-  sv('na-prospectId', prospectId||'');
-  sv('na-company', (p&&p.company) || (prefill&&prefill.company) || '');
-  sv('na-person',  (p&&p.name)    || (prefill&&prefill.person)  || '');
-  sv('na-type','Follow-up call'); sv('na-date',''); sv('na-assigned',curUser||''); sv('na-note','');
+  sv('na-id', ex? ex.id : '');
+  sv('na-prospectId', (ex&&ex.prospectId) || prospectId || '');
+  sv('na-company', (ex&&ex.company) || (p&&p.company) || (prefill&&prefill.company) || '');
+  sv('na-person',  (ex&&ex.person)  || (p&&p.name)    || (prefill&&prefill.person)  || '');
+  sv('na-type', ex? (ex.type||'Follow-up call') : 'Follow-up call');
+  sv('na-date', ex? (ex.nextDate||'') : '');
+  sv('na-assigned', ex? (ex.assignedTo||'') : (curUser||''));
+  sv('na-note', ex? (ex.followupNote||'') : '');
+  ge('na-title').textContent = ex ? 'Next Action' : 'Add To-Do / Next Action';
+  const sb=ge('na-save-btn'); if(sb) sb.innerHTML = ex ? '<i class="fa fa-save me-1"></i>Save' : '<i class="fa fa-plus me-1"></i>Add To-Do';
+  const db=ge('na-done-btn'); if(db) db.style.display = ex ? '' : 'none';
   const co=gv('na-company'), pn=gv('na-person');
   ge('na-context').innerHTML = (co||pn) ? `<i class="fa fa-user me-1"></i>${esc(pn||'')}${co?' · '+esc(co):''}` : '';
   bootstrap.Modal.getOrCreateInstance(ge('mNextAct')).show();
 }
 function saveNextAct(){
+  const id=gv('na-id');
+  if(id){
+    const m=smtgs.find(x=>x.id===id);
+    if(m){ m.type=gv('na-type'); m.nextDate=gv('na-date'); m.assignedTo=gv('na-assigned'); m.followupNote=gv('na-note');
+      save(); sbPut('smtgs',m).catch(console.error); }
+    bootstrap.Modal.getOrCreateInstance(ge('mNextAct')).hide();
+    if(curView==='prospect-detail') renderProspectDetail(curProspect);
+    if(curView==='followups')       renderFollowupsDue();
+    if(curView==='activities')      renderActs();
+    return;
+  }
   const d={
     id: uid(), category:'Activity', type: gv('na-type'),
     prospectId: gv('na-prospectId')||'', leadId:'',
@@ -2235,6 +2258,46 @@ function setFollowupField(id, field, value){
   if(field==='assignedTo') renderFollowupsDue(); // may drop out if an owner filter is active
 }
 
+// One-time cleanup: split legacy embedded next-actions (still open) into their own to-do Activities.
+// Idempotent — once a record's next-action is moved+cleared it won't be reprocessed.
+function migrateLegacyNextActions(){
+  const legacy = smtgs.filter(m=>m && !m.deleted && m.nextAction && m.done!==true);
+  if(!legacy.length){ alert('Nothing to fix — no open legacy follow-ups found.'); return; }
+  if(!confirm(legacy.length+' legacy follow-up'+(legacy.length===1?'':'s')+' will be split into their own to-dos (keeping assignee + date). Continue?')) return;
+  const created=[];
+  legacy.forEach(m=>{
+    created.push({ id:uid(), category:'Activity', type:m.nextAction,
+      prospectId:m.prospectId||'', leadId:m.leadId||'',
+      company:m.company||'', person:m.person||'',
+      nextDate:m.nextDate||'', assignedTo:m.assignedTo||'', followupNote:m.followupNote||'',
+      done:false, user_id:m.user_id||null, date:today(), created:nowStr(), deleted:false });
+    m.nextAction=''; m.nextDate=''; m.assignedTo=''; m.followupNote='';
+  });
+  created.forEach(t=>{ smtgs.unshift(t); sbPut('smtgs',t).catch(console.error); });
+  legacy.forEach(m=>{ sbPut('smtgs',m).catch(console.error); });
+  save();
+  renderFollowupsDue();
+  if(curView==='activities') renderActs();
+  alert('Done — '+created.length+' to-do'+(created.length===1?'':'s')+' created. They now behave like normal to-dos.');
+}
+
+// Remove a to-do / next action — soft-delete, and log who removed it on the prospect profile.
+function removeAction(id){
+  const m=smtgs.find(x=>x.id===id); if(!m) return;
+  const label=m.nextAction||normType(m.type);
+  if(!confirm('Remove this to-do: "'+label+'"?\n\nIt will be logged on the prospect profile showing who removed it.')) return;
+  m.deleted=true; sbPut('smtgs',m).catch(console.error);
+  const p = m.prospectId ? prospects.find(x=>x.id===m.prospectId) : null;
+  if(p){
+    const stamp=`[${today()}${curUser?' '+curUser:''}] `;
+    p.notes=(p.notes?p.notes+'\n':'')+stamp+'Removed to-do: '+label+(m.nextDate?' (was due '+m.nextDate+')':'');
+    p.updated=nowStr(); sbPut('prospects',p).catch(console.error);
+  }
+  save();
+  renderFollowupsDue();
+  if(curView==='prospect-detail') renderProspectDetail(curProspect);
+}
+
 // ── FOLLOW-UPS DUE (open next-actions across all activities) ────────────────
 function renderFollowupsDue(){
   const t=today();
@@ -2243,11 +2306,13 @@ function renderFollowupsDue(){
   const isOpenAct = m => catOf(m)==='Activity' && m.done===false;
   const dueOf     = m => m.nextAction ? (m.nextDate||'') : (m.nextDate||m.date||'');
   const labelOf   = m => m.nextAction ? m.nextAction : normType(m.type);
+  const q=(gv('fu-q')||'').toLowerCase();
   let rows=smtgs.filter(m=>{
     if(!m || m.deleted || m.done) return false;
     return isOpenAct(m) || !!m.nextAction;
   });
   if(fa) rows=rows.filter(m=>(m.assignedTo||'')===fa);
+  if(q) rows=rows.filter(m=>[m.company,m.person,labelOf(m),m.followupNote,m.assignedTo].join(' ').toLowerCase().includes(q));
   rows.sort((a,b)=>(dueOf(a)||'9999-99-99').localeCompare(dueOf(b)||'9999-99-99'));
   const overdueCount=rows.filter(m=>{const d=dueOf(m); return d && d<t;}).length;
   const nb=ge('fu-nav-badge'); if(nb){ nb.textContent=overdueCount||''; nb.style.display=overdueCount?'inline-block':'none'; }
@@ -2259,10 +2324,10 @@ function renderFollowupsDue(){
       <td style="white-space:nowrap;color:${od?'#c62828':'#555'};font-weight:${od?'700':'400'}">${od?'<i class="fa fa-exclamation-circle me-1"></i>':''}${due||'—'}</td>
       <td style="font-weight:600">${esc(m.company||'—')}</td>
       <td style="font-size:.79rem">${esc(m.person||'—')}</td>
-      <td style="font-size:.79rem;color:#e65100">${esc(labelOf(m))}</td>
+      <td style="font-size:.79rem;color:#e65100">${(catOf(m)==='Activity'&&m.done===false)?`<span onclick="event.stopPropagation();openNextAct('${m.prospectId||''}',null,'${m.id}')" style="cursor:pointer;text-decoration:underline dotted" title="View / edit this to-do">${esc(labelOf(m))}</span>`:esc(labelOf(m))}</td>
       <td onclick="event.stopPropagation()" style="max-width:220px"><input type="text" value="${esc(m.followupNote||'')}" onchange="setFollowupField('${m.id}','followupNote',this.value)" placeholder="Add instructions…" style="font-size:.74rem;padding:.15rem .35rem;border:1px solid #eef1f5;border-radius:5px;width:100%"></td>
       <td onclick="event.stopPropagation()"><select onchange="setFollowupField('${m.id}','assignedTo',this.value)" style="font-size:.74rem;padding:.15rem .3rem;border:1px solid #dde3ec;border-radius:5px;max-width:150px">${['',...TEAM].map(u=>`<option value="${esc(u)}"${(m.assignedTo||'')===u?' selected':''}>${u?esc(u):'— Unassigned —'}</option>`).join('')}</select></td>
-      <td><button onclick="event.stopPropagation();markActionDone('${m.id}')" class="btn btn-sm" style="background:#e8f5e9;border:1px solid #a5d6a7;color:#2e7d32;font-size:.7rem;padding:.1rem .5rem"><i class="fa fa-check me-1"></i>Done</button></td>
+      <td style="white-space:nowrap"><button onclick="event.stopPropagation();markActionDone('${m.id}')" class="btn btn-sm" style="background:#e8f5e9;border:1px solid #a5d6a7;color:#2e7d32;font-size:.7rem;padding:.1rem .5rem"><i class="fa fa-check me-1"></i>Done</button> <button onclick="event.stopPropagation();removeAction('${m.id}')" style="background:none;border:none;color:#d0d0d0;cursor:pointer;padding:.1rem .3rem" title="Remove this to-do (logged on prospect)"><i class="fa fa-times"></i></button></td>
     </tr>`;
   }).join('') : `<tr><td colspan="7"><div class="es"><i class="fa fa-check-circle" style="color:#4caf50"></i>No open follow-ups. All caught up!</div></td></tr>`;
   ge('fu-ftr').textContent = `${rows.length} open follow-up${rows.length===1?'':'s'}${overdueCount?` · ${overdueCount} overdue`:''}`;
@@ -3004,10 +3069,11 @@ function renderDigest(){
   const newThisWk = leads.filter(l=>l.created && l.created >= wkMon);
   const wonThisWk = leads.filter(l=>l.status==='Won' && l.updated && l.updated >= wkMon);
 
-  // All meeting records (lead-linked + standalone)
-  const allMtgs  = [...meetings, ...smtgs];
-  const mtgThisWk= allMtgs.filter(m=>(m.date||'') >= wkMon);
-  const mtgLastWk= allMtgs.filter(m=>{const d=m.date||''; return d>=lastMon && d<wkMon;});
+  // Real MEETINGS only (exclude activities/to-dos) for the meeting counts
+  const allMtgs     = [...meetings, ...smtgs];
+  const allMeetings = allMtgs.filter(m=>catOf(m)==='Meeting');
+  const mtgThisWk= allMeetings.filter(m=>(m.date||'') >= wkMon);
+  const mtgLastWk= allMeetings.filter(m=>{const d=m.date||''; return d>=lastMon && d<wkMon;});
 
   // ── Health cards ────────────────────────────────────────────────────────
   const pctOverdue = active.length ? Math.round(overdue.length/active.length*100) : 0;
@@ -3048,7 +3114,7 @@ function renderDigest(){
     const myOver   = myLeads.filter(l=>l.nextActionDate && l.nextActionDate < t);
     const myCold   = myLeads.filter(l=>!l.updated || l.updated < d30);
     const myNoAct  = myLeads.filter(l=>!l.nextAction);
-    const myMtgs   = allMtgs.filter(m => { const att=Array.isArray(m.by)?m.by:(m.by?[m.by]:[]); return att.includes(rep) && (m.date||'') >= wkMon; });
+    const myMtgs   = allMeetings.filter(m => { const att=Array.isArray(m.by)?m.by:(m.by?[m.by]:[]); return att.includes(rep) && (m.date||'') >= wkMon; });
     const health   = myOver.length===0 && myCold.length===0 ? 'green'
                    : myOver.length<=1 && myCold.length<=2 ? 'amber' : 'red';
     const hColor   = {green:'#2e7d32',amber:'#f57f17',red:'#c62828'}[health];
@@ -3085,7 +3151,7 @@ function renderDigest(){
     mtgThisWk.length > mtgLastWk.length ? ' <span style="color:#2e7d32">↑ up</span>' :
     mtgThisWk.length < mtgLastWk.length ? ' <span style="color:#c62828">↓ down</span>' :
     ' <span style="color:#888">= flat</span>';
-  const upcoming = allMtgs.filter(m=>(m.nextDate||'')>=t).sort((a,b)=>(a.nextDate||'').localeCompare(b.nextDate||'')).slice(0,5);
+  const upcoming = smtgs.filter(m=>m && !m.deleted && !m.done && ((catOf(m)==='Activity'&&m.done===false)||m.nextAction) && (m.nextDate||'')>=t).sort((a,b)=>(a.nextDate||'').localeCompare(b.nextDate||'')).slice(0,5);
   ge('digest-meetings').innerHTML =
     '<div style="display:flex;gap:1.5rem;padding:.75rem 1rem;border-bottom:1px solid #f5f6f8">'
     +'<div style="text-align:center"><div style="font-size:1.5rem;font-weight:800;color:#00695c">'+mtgThisWk.length+'</div>'
@@ -3101,7 +3167,7 @@ function renderDigest(){
       ? '<div style="padding:.5rem 1rem">'
         +'<div style="font-size:.72rem;font-weight:700;color:#888;margin-bottom:.3rem;text-transform:uppercase;letter-spacing:.04em">Upcoming Follow-ups</div>'
         + upcoming.map(m=>'<div style="display:flex;justify-content:space-between;padding:.25rem 0;border-bottom:1px solid #f9f9f9;font-size:.77rem">'
-          +'<span style="color:#333">'+esc(m.nextAction||m.title||'Follow-up')+'</span>'
+          +'<span style="color:#333">'+esc(m.nextAction||normType(m.type)||m.title||'Follow-up')+'</span>'
           +'<span style="color:#888;flex-shrink:0;margin-left:.5rem">'+m.nextDate+'</span></div>').join('')
         +'</div>'
       : '<div style="padding:.75rem 1rem;font-size:.76rem;color:#aaa">No upcoming follow-ups scheduled</div>');
