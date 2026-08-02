@@ -200,6 +200,7 @@
     <div class="nav-lnk" id="nl-leads"     onclick="showView('leads')"><i class="fa fa-folder-open"></i>Leads</div>
     <div class="nav-lnk" id="nl-prospects" onclick="showView('prospects')"><i class="fa fa-users"></i>Prospects</div>
     <div class="nav-lnk" id="nl-smtg"      onclick="showView('smtg')"><i class="fa fa-handshake"></i>Meetings</div>
+    <div class="nav-lnk" id="nl-activities" onclick="showView('activities')"><i class="fa fa-bolt"></i>Activities</div>
     <div class="nav-lnk" id="nl-followups" onclick="showView('followups')"><i class="fa fa-clipboard-check"></i>Follow-ups <span id="fu-nav-badge" style="display:none;background:#c62828;color:#fff;border-radius:10px;font-size:.62rem;font-weight:700;padding:.05rem .4rem;margin-left:.25rem"></span></div>
     <div class="nav-lnk" id="nl-pipeline"  onclick="showView('pipeline')"><i class="fa fa-table-columns"></i>Pipeline</div>
     <div class="nav-lnk" id="nl-meetings"  onclick="showView('meetings')"><i class="fa fa-comments"></i>All Activity</div>
@@ -333,15 +334,12 @@
           </select>
           <select id="sm-ftype" onchange="renderSMtgs()" style="font-size:.79rem;padding:.32rem .55rem;border:1px solid #dde3ec;border-radius:6px;background:#fff">
             <option value="">All Types</option>
-            <option>Phone Call</option>
-            <option>Teams / Video Call</option>
             <option>In-Person Meeting</option>
+            <option>Teams / Video Call</option>
+            <option>Phone Call</option>
             <option>Site Visit</option>
-            <option>Email Follow-up</option>
-            <option>WhatsApp / Message</option>
             <option>Demo Day</option>
             <option>Trade Show</option>
-            <option>Pricing Submitted</option>
           </select>
         </div>
         <button class="btn btn-sm btn-bv" onclick="openSMtgModal()"><i class="fa fa-plus me-1"></i>Log Meeting</button>
@@ -357,6 +355,33 @@
           </table>
         </div>
         <div class="ct-footer" id="smtg-ftr"></div>
+      </div>
+    </div>
+
+    <!-- ACTIVITIES -->
+    <div class="view" id="view-activities">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.9rem;flex-wrap:wrap;gap:.5rem">
+        <div style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center">
+          <input type="text" id="act-q" placeholder="🔍 Search..." oninput="renderActs()" style="font-size:.79rem;padding:.32rem .6rem;border:1px solid #dde3ec;border-radius:6px;background:#fff;width:190px">
+          <select id="act-ftype" onchange="renderActs()" style="font-size:.79rem;padding:.32rem .55rem;border:1px solid #dde3ec;border-radius:6px;background:#fff">
+            <option value="">All Types</option>
+            <option>Follow-up call</option><option>Email sent</option><option>WhatsApp sent</option>
+            <option>Price submitted</option><option>Brochures / Information sent</option>
+          </select>
+        </div>
+        <button class="btn btn-sm btn-bv" onclick="openLogAct('', null, 'activity')"><i class="fa fa-plus me-1"></i>Log Activity</button>
+      </div>
+      <div class="sc">
+        <div style="overflow-x:auto">
+          <table class="ct">
+            <thead><tr>
+              <th>Date</th><th>Company</th><th>Person</th><th>Phone</th><th>Email</th><th>By</th>
+              <th>What was Discussed</th><th>Projects</th><th>Next Contact</th><th>Next Action</th><th></th>
+            </tr></thead>
+            <tbody id="act-tbody"></tbody>
+          </table>
+        </div>
+        <div class="ct-footer" id="act-ftr"></div>
       </div>
     </div>
 
@@ -560,7 +585,8 @@
         </div>
         <div style="display:flex;gap:.5rem;flex-shrink:0">
           <button class="btn btn-sm btn-outline-secondary" onclick="openProspectImport()"><i class="fa fa-file-import me-1"></i>Import</button>
-          <button class="btn btn-sm btn-outline-primary" onclick="openLogAct()"><i class="fa fa-clipboard-check me-1"></i>Log Activity</button>
+          <button class="btn btn-sm btn-outline-primary" onclick="openLogAct('', null, 'meeting')"><i class="fa fa-handshake me-1"></i>Log Meeting</button>
+          <button class="btn btn-sm btn-outline-primary" onclick="openLogAct('', null, 'activity')"><i class="fa fa-bolt me-1"></i>Log Activity</button>
           <button class="btn btn-sm btn-bv" onclick="openProspectModal()"><i class="fa fa-plus me-1"></i>Add Prospect</button>
         </div>
       </div>
@@ -742,12 +768,8 @@
           <!-- Row 1: Date, Company, Person -->
           <div class="col-md-3"><label class="form-label">Meeting Date *</label>
             <input type="date" class="form-control" id="msm-date"></div>
-          <div class="col-md-3"><label class="form-label">Activity Type</label>
-            <select class="form-select" id="msm-type">
-              <option>In-Person Meeting</option><option>Phone Call</option><option>Teams / Video Call</option>
-              <option>Site Visit</option><option>WhatsApp / Message</option><option>Email Follow-up</option>
-              <option>Demo Day</option><option>Trade Show</option><option>Pricing Submitted</option>
-            </select></div>
+          <div class="col-md-3"><label class="form-label">Type</label>
+            <select class="form-select" id="msm-type"></select></div>
           <div class="col-md-3"><label class="form-label">Bergvik Attendee(s)</label>
             <div id="msm-by-list" class="crm-attendee-list"></div></div>
           <div class="col-md-3">
@@ -817,11 +839,12 @@
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header" style="background:var(--blue);color:#fff;padding:.75rem 1.1rem">
-        <h6 class="modal-title">Log Activity</h6>
+        <h6 class="modal-title" id="la-modal-title">Log Activity</h6>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
         <input type="hidden" id="la-prospectId">
+        <input type="hidden" id="la-mode">
         <div class="row g-3">
           <div class="col-12">
             <label class="form-label">Prospect *</label>
@@ -842,11 +865,7 @@
 
           <div class="col-12"><hr style="margin:.15rem 0;border-color:#f0f2f5"><div style="font-size:.72rem;font-weight:700;color:#bbb;margin-bottom:.1rem">ACTIVITY</div></div>
           <div class="col-md-4"><label class="form-label">Activity Type</label>
-            <select class="form-select" id="la-type">
-              <option>In-Person Meeting</option><option>Phone Call</option><option>Teams / Video Call</option>
-              <option>Site Visit</option><option>WhatsApp / Message</option><option>Email Follow-up</option>
-              <option>Demo Day</option><option>Trade Show</option><option>Pricing Submitted</option>
-            </select></div>
+            <select class="form-select" id="la-type"></select></div>
           <div class="col-md-4"><label class="form-label">Date *</label>
             <input type="date" class="form-control" id="la-date"></div>
           <div class="col-md-4"><label class="form-label">Logged by</label>
@@ -1183,10 +1202,20 @@ const TEAM_FALLBACK = ['Brendan Ferns','Charles Botha','Christine Mayienda','Elm
 let TEAM = [...TEAM_FALLBACK]; // populated from Supabase auth after login
 const STATUSES = ['New','Contacted','In Discussion','Meeting Scheduled','Proposal Sent','Won','Dead / Lost'];
 const PORDER   = {HIGH:0,MEDIUM:1,PIPELINE:2,LOW:3};
+// ── MEETING vs ACTIVITY split ─────────────────────────────────────────────
+// Meetings = live discussions with a 3rd party. Activities = touches/execution.
+const MEETING_TYPES  = ['In-Person Meeting','Teams / Video Call','Phone Call','Site Visit','Demo Day','Trade Show'];
+const ACTIVITY_TYPES = ['Follow-up call','Email sent','WhatsApp sent','Price submitted','Brochures / Information sent'];
+// Old/loose labels mapped to the new canonical set (for display + categorisation of existing data)
+const TYPE_RENAME = {'Email Follow-up':'Email sent','WhatsApp / Message':'WhatsApp sent','Pricing Submitted':'Price submitted','Follow up call':'Follow-up call','Email more Info':'Email sent'};
+const _ACT_SET = new Set([...ACTIVITY_TYPES,'Email Follow-up','WhatsApp / Message','Pricing Submitted','Follow up call','Email more Info']);
+function normType(t){ return TYPE_RENAME[t]||t||''; }
+function catOf(m){ const t = (m && typeof m==='object') ? m.type : m; if(m && m.category) return m.category; return _ACT_SET.has(t) ? 'Activity' : 'Meeting'; }
+
 // ── REP PERFORMANCE METRICS ───────────────────────────────────────────────
 // Phase 1: CRM-native activity counts.  Phase 2: quote-derived (disabled).
 const REP_METRICS = [
-  { key:'meetings',      label:'Meetings & Activities', icon:'fa-handshake',        col:'#1F4E79' },
+  { key:'meetings',      label:'Meetings',              icon:'fa-handshake',        col:'#1F4E79' },
   { key:'calls',         label:'Calls',                 icon:'fa-phone',             col:'#2e7d32' },
   { key:'demo_days',     label:'Demo Days',             icon:'fa-desktop',           col:'#6a1b9a' },
   { key:'trade_shows',   label:'Trade Shows',           icon:'fa-store',             col:'#00695c' },
@@ -1212,18 +1241,21 @@ function repActuals(userId, repName, yr){
     const sb = m.scheduledBy || (Array.isArray(m.by) ? null : m.by) || '';
     return sb === repName;
   });
+  const ytdMeet = ytd.filter(m => catOf(m) === 'Meeting'); // real meetings only
   return {
-    meetings:    ytd.length,
-    calls:       ytd.filter(m => /call|phone/i.test(m.type||'')).length,
-    demo_days:   ytd.filter(m => m.type === 'Demo Day').length,
-    trade_shows: ytd.filter(m => m.type === 'Trade Show').length,
+    meetings:    ytdMeet.length,
+    calls:       ytdMeet.filter(m => m.type === 'Phone Call').length, // substantive calls only (not follow-up calls)
+    demo_days:   ytdMeet.filter(m => m.type === 'Demo Day').length,
+    trade_shows: ytdMeet.filter(m => m.type === 'Trade Show').length,
     scheduled:   ytdScheduled.length,
   };
 }
 
 const MICONS   = {'Phone Call':'fa-phone','Teams / Video Call':'fa-video','In-Person Meeting':'fa-handshake',
-                  'Site Visit':'fa-hard-hat','Email Follow-up':'fa-envelope','WhatsApp / Message':'fa-comment-dots',
-                  'Demo Day':'fa-desktop', 'Trade Show':'fa-store', 'Pricing Submitted':'fa-file-invoice-dollar'};
+                  'Site Visit':'fa-hard-hat','Demo Day':'fa-desktop','Trade Show':'fa-store',
+                  'Follow-up call':'fa-phone-volume','Email sent':'fa-envelope','WhatsApp sent':'fa-comment-dots',
+                  'Price submitted':'fa-file-invoice-dollar','Brochures / Information sent':'fa-file-lines',
+                  'Email Follow-up':'fa-envelope','WhatsApp / Message':'fa-comment-dots','Pricing Submitted':'fa-file-invoice-dollar'};
 
 // ── PROSPECT CONFIG ───────────────────────────────────────────────────────
 const PROSPECT_STATUSES   = ['To Contact','Contacted','Meeting Set','Met','Nurturing','Dormant'];
@@ -1380,7 +1412,7 @@ async function doLogout(){
 
 // ── NAVIGATION ────────────────────────────────────────────────────────────
 let curView='dashboard', curLead=null;
-const TITLES = {dashboard:'Dashboard',leads:'Leads',smtg:'Meetings',followups:'Follow-ups Due',pipeline:'Pipeline',meetings:'All Activity','lead-detail':'Lead Detail',l2b:'L2B Inbox',digest:'Weekly Digest',goals:'Goals',prospects:'Prospects','prospect-detail':'Prospect Detail',mgmt:'Management','rep-targets':'Rep Targets'};
+const TITLES = {dashboard:'Dashboard',leads:'Leads',smtg:'Meetings',activities:'Activities',followups:'Follow-ups Due',pipeline:'Pipeline',meetings:'All Activity','lead-detail':'Lead Detail',l2b:'L2B Inbox',digest:'Weekly Digest',goals:'Goals',prospects:'Prospects','prospect-detail':'Prospect Detail',mgmt:'Management','rep-targets':'Rep Targets'};
 
 function showView(v){
   window.scrollTo(0,0);
@@ -1395,6 +1427,7 @@ function showView(v){
   if(v==='dashboard')       renderDash();
   if(v==='leads')           renderLeads();
   if(v==='smtg')            renderSMtgs();
+  if(v==='activities')      renderActs();
   if(v==='followups')       renderFollowupsDue();
   if(v==='pipeline')        renderPipe();
   if(v==='meetings')        renderMtgs();
@@ -1956,7 +1989,8 @@ function renderProspectDetail(id){
       <span style="background:#e3f2fd;color:#1565c0;padding:.2rem .55rem;border-radius:8px;font-size:.72rem;font-weight:700">${esc(p.type||'')}</span>
       <div style="flex:1"></div>
       <button class="btn btn-sm btn-outline-secondary" onclick="openProspectModal('${p.id}')"><i class="fa fa-edit me-1"></i>Edit</button>
-      <button class="btn btn-sm btn-bv" onclick="openLogAct('${p.id}')"><i class="fa fa-plus me-1"></i>Log Activity</button>
+      <button class="btn btn-sm btn-outline-primary" onclick="openLogAct('${p.id}', null, 'meeting')"><i class="fa fa-handshake me-1"></i>Log Meeting</button>
+      <button class="btn btn-sm btn-bv" onclick="openLogAct('${p.id}', null, 'activity')"><i class="fa fa-bolt me-1"></i>Log Activity</button>
     </div>
 
     <div class="row g-3 mb-3">
@@ -1995,16 +2029,18 @@ function renderProspectDetail(id){
     <div class="sc">
       <div class="sc-hdr" style="display:flex;align-items:center;justify-content:space-between">
         <h6 style="margin:0"><i class="fa fa-history me-2"></i>Activity Log <span style="font-weight:400;font-size:.8rem;color:#999">(${actLog.length})</span></h6>
-        <button class="btn btn-sm btn-bv" onclick="openLogAct('${p.id}')"><i class="fa fa-plus me-1"></i>Log Activity</button>
+        <button class="btn btn-sm btn-outline-primary" onclick="openLogAct('${p.id}', null, 'meeting')"><i class="fa fa-handshake me-1"></i>Log Meeting</button>
+      <button class="btn btn-sm btn-bv" onclick="openLogAct('${p.id}', null, 'activity')"><i class="fa fa-bolt me-1"></i>Log Activity</button>
       </div>
       ${actLog.length ? actLog.map(m=>`
         <div style="display:flex;gap:.75rem;padding:.65rem 1rem;border-bottom:1px solid #f5f6f8;align-items:flex-start">
-          <div style="flex-shrink:0;width:28px;height:28px;background:#e3f2fd;border-radius:50%;display:flex;align-items:center;justify-content:center;margin-top:.1rem">
-            <i class="fa ${MICONS[m.type]||'fa-circle'}" style="font-size:.68rem;color:#1565c0"></i>
+          <div style="flex-shrink:0;width:28px;height:28px;background:${catOf(m)==='Activity'?'#e8f5e9':'#e3f2fd'};border-radius:50%;display:flex;align-items:center;justify-content:center;margin-top:.1rem">
+            <i class="fa ${MICONS[normType(m.type)]||'fa-circle'}" style="font-size:.68rem;color:${catOf(m)==='Activity'?'#2e7d32':'#1565c0'}"></i>
           </div>
           <div style="flex:1;min-width:0">
             <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
-              <span style="font-size:.75rem;font-weight:700;color:#333">${esc(m.type||'Activity')}</span>
+              <span style="font-size:.6rem;font-weight:800;text-transform:uppercase;letter-spacing:.03em;padding:.05rem .35rem;border-radius:5px;background:${catOf(m)==='Activity'?'#e8f5e9':'#e3f2fd'};color:${catOf(m)==='Activity'?'#2e7d32':'#1565c0'}">${catOf(m)}</span>
+              <span style="font-size:.75rem;font-weight:700;color:#333">${esc(normType(m.type)||'Activity')}</span>
               <span style="font-size:.69rem;color:#aaa">${m.date||''}</span>
               <span style="font-size:.69rem;color:#999">by ${esc((Array.isArray(m.by)?m.by.join(', '):m.by)||'')}</span>
             </div>
@@ -2055,11 +2091,19 @@ function laResolveProspect(){
     ge('la-prospect-hint').textContent = q ? 'No match — this will be logged as a new company (no prospect link).' : '';
   }
 }
-function openLogAct(prospectId, prefill){
-  laBuildDatalist(); populateLaSelects();
+function laFillTypes(mode){
+  const sel=ge('la-type'); if(!sel) return;
+  const list = mode==='meeting' ? MEETING_TYPES : ACTIVITY_TYPES;
+  sel.innerHTML = list.map(tp=>`<option>${esc(tp)}</option>`).join('');
+}
+function openLogAct(prospectId, prefill, mode){
+  mode = (mode==='meeting') ? 'meeting' : 'activity';
+  laBuildDatalist(); populateLaSelects(); laFillTypes(mode);
+  sv('la-mode', mode);
+  const tt=ge('la-modal-title'); if(tt) tt.textContent = mode==='meeting' ? 'Log Meeting' : 'Log Activity';
   sv('la-prospectId',''); sv('la-prospect-q','');
   sv('la-company',''); sv('la-person',''); sv('la-phone',''); sv('la-email','');
-  sv('la-type','In-Person Meeting'); sv('la-date',today()); sv('la-by',curUser||'');
+  sv('la-type', mode==='meeting'?'In-Person Meeting':'Follow-up call'); sv('la-date',today()); sv('la-by',curUser||'');
   sv('la-discussed',''); sv('la-projects',''); sv('la-outcome','');
   sv('la-na',''); sv('la-nd',''); sv('la-assigned',curUser||''); sv('la-followup-note','');
   ge('la-prospect-hint').textContent='';
@@ -2131,6 +2175,7 @@ function saveLogAct(){
     id: uid(),
     date:       gv('la-date'),
     type:       gv('la-type'),
+    category:   catOf(gv('la-type')),
     by:         by?[by]:[],
     status:     'Completed',
     user_id:    sbSession?.user?.id || null,
@@ -2361,25 +2406,12 @@ function smtgStatusChanged(){
   if(disc) disc.style.display = scheduled ? 'none' : '';
 }
 
-function renderSMtgs(){
-  const q=gv('sm-q').toLowerCase(), fa=gv('sm-fna'), ft=gv('sm-ftype'), t=today();
-  let rows=[...smtgs].filter(m=>{
-    if(fa){ const att=Array.isArray(m.by)?m.by:(m.by?[m.by]:[]); if(!att.includes(fa)) return false; }
-    if(ft&&m.type!==ft) return false;
-    if(q&&![m.company,m.person,m.discussed,m.projects,m.nextAction,m.outcome].join(' ').toLowerCase().includes(q)) return false;
-    return true;
-  }).sort((a,b)=>{
-    const as=(a.status||'Completed')==='Scheduled', bs=(b.status||'Completed')==='Scheduled';
-    if(as!==bs) return as?-1:1;
-    return b.date.localeCompare(a.date);
-  });
-
-  ge('smtg-tbody').innerHTML = rows.length ? rows.map(m=>{
-    const linkedLead = m.leadId ? leads.find(l=>l.id===m.leadId) : null;
-    const overdue = m.nextDate && m.nextDate < t && !m.done;
-    const scheduled = (m.status||'Completed')==='Scheduled';
-    const byStr = Array.isArray(m.by)?m.by.join(', '):(m.by||'—');
-    return `<tr style="cursor:pointer;font-size:.81rem" onclick="openSMtgModal('${m.id}')">
+function _smtgRowHtml(m,t){
+  const linkedLead = m.leadId ? leads.find(l=>l.id===m.leadId) : null;
+  const overdue = m.nextDate && m.nextDate < t && !m.done;
+  const scheduled = (m.status||'Completed')==='Scheduled';
+  const byStr = Array.isArray(m.by)?m.by.join(', '):(m.by||'—');
+  return `<tr style="cursor:pointer;font-size:.81rem" onclick="openSMtgModal('${m.id}')">
       <td style="white-space:nowrap;color:#555;font-size:.77rem">${m.date||'—'}<br><span class="crm-status-badge crm-status-${scheduled?'scheduled':'completed'}">${scheduled?'Upcoming':'Completed'}</span>${m.scheduledBy?`<br><span style="font-size:.65rem;color:#aaa">by ${esc(m.scheduledBy)}</span>`:''}</td>
       <td style="font-weight:600">${esc(m.company||'—')}</td>
       <td style="font-size:.79rem">${esc(m.person||'—')}</td>
@@ -2392,18 +2424,50 @@ function renderSMtgs(){
       <td style="font-size:.76rem;color:#e65100;max-width:160px">${esc((m.nextAction||'').slice(0,45))}${(m.nextAction||'').length>45?'…':''}${(m.nextAction&&!m.done)?`<br><button onclick="event.stopPropagation();markActionDone('${m.id}')" style="margin-top:.2rem;background:#e8f5e9;border:1px solid #a5d6a7;color:#2e7d32;border-radius:6px;font-size:.66rem;padding:.03rem .35rem;cursor:pointer"><i class="fa fa-check me-1"></i>Mark done</button>`:''}</td>
       <td><button onclick="event.stopPropagation();confirmDel('smtg','${m.id}')" style="background:none;border:none;color:#ddd;cursor:pointer;padding:.1rem .3rem"><i class="fa fa-times"></i></button></td>
     </tr>`;
-  }).join('')
+}
+function renderSMtgs(){
+  const q=gv('sm-q').toLowerCase(), fa=gv('sm-fna'), ft=gv('sm-ftype'), t=today();
+  let rows=[...smtgs].filter(m=>{
+    if(catOf(m)!=='Meeting') return false;
+    if(fa){ const att=Array.isArray(m.by)?m.by:(m.by?[m.by]:[]); if(!att.includes(fa)) return false; }
+    if(ft&&normType(m.type)!==ft) return false;
+    if(q&&![m.company,m.person,m.discussed,m.projects,m.nextAction,m.outcome].join(' ').toLowerCase().includes(q)) return false;
+    return true;
+  }).sort((a,b)=>{
+    const as=(a.status||'Completed')==='Scheduled', bs=(b.status||'Completed')==='Scheduled';
+    if(as!==bs) return as?-1:1;
+    return (b.date||'').localeCompare(a.date||'');
+  });
+  ge('smtg-tbody').innerHTML = rows.length ? rows.map(m=>_smtgRowHtml(m,t)).join('')
   : `<tr><td colspan="11"><div class="es"><i class="fa fa-handshake"></i>No meetings logged yet.<br><small>Click "Log Meeting" to add your first one.</small></div></td></tr>`;
   ge('smtg-ftr').textContent = `${rows.length} meeting${rows.length===1?'':'s'}`;
 }
+function renderActs(){
+  const q=(gv('act-q')||'').toLowerCase(), ft=gv('act-ftype'), t=today();
+  let rows=[...smtgs].filter(m=>{
+    if(catOf(m)!=='Activity') return false;
+    if(ft&&normType(m.type)!==ft) return false;
+    if(q&&![m.company,m.person,m.discussed,m.projects,m.nextAction,m.outcome].join(' ').toLowerCase().includes(q)) return false;
+    return true;
+  }).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  ge('act-tbody').innerHTML = rows.length ? rows.map(m=>_smtgRowHtml(m,t)).join('')
+  : `<tr><td colspan="11"><div class="es"><i class="fa fa-bolt"></i>No activities logged yet.<br><small>Click "Log Activity" to record one.</small></div></td></tr>`;
+  ge('act-ftr').textContent = `${rows.length} activit${rows.length===1?'y':'ies'}`;
+}
 
+function msmFillTypes(cat){
+  const sel=ge('msm-type'); if(!sel) return;
+  const list = cat==='Activity' ? ACTIVITY_TYPES : MEETING_TYPES;
+  sel.innerHTML = list.map(tp=>`<option>${esc(tp)}</option>`).join('');
+}
 function openSMtgModal(id){
   populateSel();
   const m = id ? smtgs.find(x=>x.id===id) : null;
+  msmFillTypes(m?catOf(m):'Meeting');
   sv('msm-id', m?.id||'');
   sv('msm-prospect', m?.prospectId||'');
   sv('msm-date', m?.date || today());
-  sv('msm-type', m?.type || 'In-Person Meeting');
+  sv('msm-type', m ? normType(m.type) : 'In-Person Meeting');
   sv('msm-status', m?.status || 'Completed');
   sv('msm-scheduled-by', m?.scheduledBy || curUser);
   setSelectedAttendees(m?.by || curUser);
@@ -2431,6 +2495,7 @@ function saveSMtg(){
     id: id||uid(),
     date:       gv('msm-date'),
     type:       gv('msm-type'),
+    category:   catOf(gv('msm-type')),
     by:         getSelectedAttendees(),
     status:     gv('msm-status'),
     scheduledBy: gv('msm-scheduled-by') || curUser || '',
