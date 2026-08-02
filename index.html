@@ -2160,19 +2160,27 @@ function setFollowupField(id, field, value){
 function renderFollowupsDue(){
   const t=today();
   const fa=gv('fu-fasgn')||'';
-  let rows=smtgs.filter(m=>m && !m.deleted && m.nextAction && !m.done);
+  // A planned activity = an Activity record not yet completed (scheduled or future-dated) with no next-action of its own.
+  const isPlanned = m => catOf(m)==='Activity' && !m.nextAction && ((m.status||'Completed')==='Scheduled' || (m.date && m.date>t));
+  const dueOf     = m => m.nextAction ? (m.nextDate||'') : (m.date||'');
+  const labelOf   = m => m.nextAction ? m.nextAction : ('Planned: '+normType(m.type));
+  let rows=smtgs.filter(m=>{
+    if(!m || m.deleted || m.done) return false;
+    return !!m.nextAction || isPlanned(m);
+  });
   if(fa) rows=rows.filter(m=>(m.assignedTo||'')===fa);
-  rows.sort((a,b)=>(a.nextDate||'9999-99-99').localeCompare(b.nextDate||'9999-99-99'));
-  const overdueCount=rows.filter(m=>m.nextDate && m.nextDate<t).length;
+  rows.sort((a,b)=>(dueOf(a)||'9999-99-99').localeCompare(dueOf(b)||'9999-99-99'));
+  const overdueCount=rows.filter(m=>{const d=dueOf(m); return d && d<t;}).length;
   const nb=ge('fu-nav-badge'); if(nb){ nb.textContent=overdueCount||''; nb.style.display=overdueCount?'inline-block':'none'; }
   const tb=ge('fu-tbody'); if(!tb) return;
   tb.innerHTML = rows.length ? rows.map(m=>{
-    const od=m.nextDate && m.nextDate<t;
+    const due=dueOf(m);
+    const od=due && due<t;
     return `<tr style="font-size:.81rem;${m.prospectId?'cursor:pointer':''}" ${m.prospectId?`onclick="curProspect='${m.prospectId}';showView('prospect-detail')"`:''}>
-      <td style="white-space:nowrap;color:${od?'#c62828':'#555'};font-weight:${od?'700':'400'}">${od?'<i class="fa fa-exclamation-circle me-1"></i>':''}${m.nextDate||'—'}</td>
+      <td style="white-space:nowrap;color:${od?'#c62828':'#555'};font-weight:${od?'700':'400'}">${od?'<i class="fa fa-exclamation-circle me-1"></i>':''}${due||'—'}</td>
       <td style="font-weight:600">${esc(m.company||'—')}</td>
       <td style="font-size:.79rem">${esc(m.person||'—')}</td>
-      <td style="font-size:.79rem;color:#e65100">${esc(m.nextAction||'')}</td>
+      <td style="font-size:.79rem;color:#e65100">${esc(labelOf(m))}</td>
       <td onclick="event.stopPropagation()" style="max-width:220px"><input type="text" value="${esc(m.followupNote||'')}" onchange="setFollowupField('${m.id}','followupNote',this.value)" placeholder="Add instructions…" style="font-size:.74rem;padding:.15rem .35rem;border:1px solid #eef1f5;border-radius:5px;width:100%"></td>
       <td onclick="event.stopPropagation()"><select onchange="setFollowupField('${m.id}','assignedTo',this.value)" style="font-size:.74rem;padding:.15rem .3rem;border:1px solid #dde3ec;border-radius:5px;max-width:150px">${['',...TEAM].map(u=>`<option value="${esc(u)}"${(m.assignedTo||'')===u?' selected':''}>${u?esc(u):'— Unassigned —'}</option>`).join('')}</select></td>
       <td><button onclick="event.stopPropagation();markActionDone('${m.id}')" class="btn btn-sm" style="background:#e8f5e9;border:1px solid #a5d6a7;color:#2e7d32;font-size:.7rem;padding:.1rem .5rem"><i class="fa fa-check me-1"></i>Done</button></td>
