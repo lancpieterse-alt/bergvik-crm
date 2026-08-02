@@ -762,7 +762,7 @@
 
           <!-- Row 4: Follow-up -->
           <div class="col-12"><hr style="margin:.25rem 0;border-color:#f0f2f5"><div style="font-size:.72rem;font-weight:700;color:#bbb;margin-bottom:.1rem">FOLLOW-UP</div></div>
-          <div class="col-md-8"><label class="form-label">Next Action</label>
+          <div class="col-md-5"><label class="form-label">Next Action</label>
             <select class="form-select" id="msm-na">
               <option value="">— Select next action —</option>
               <option>Follow up call</option>
@@ -772,8 +772,10 @@
               <option>Demo Day</option>
               <option>Other</option>
             </select></div>
-          <div class="col-md-4"><label class="form-label">Next Contact Date</label>
+          <div class="col-md-3"><label class="form-label">Next Contact Date</label>
             <input type="date" class="form-control" id="msm-nd"></div>
+          <div class="col-md-4"><label class="form-label">Assign follow-up to</label>
+            <select class="form-select" id="msm-assigned"><option value="">— Unassigned —</option></select></div>
         </div>
       </div>
       <div class="modal-footer">
@@ -1324,6 +1326,8 @@ function populateSel(){
   buildAttendeeChecklist();
   // Standalone meeting modal: scheduled by
   const msb=ge('msm-scheduled-by'); if(msb){ const cv=msb.value; msb.innerHTML='<option value="">— Select —</option>'+TEAM.map(u=>`<option${u===cv?' selected':''}>${esc(u)}</option>`).join(''); }
+  // Standalone meeting modal: assign follow-up to
+  const msa=ge('msm-assigned'); if(msa){ const cv=msa.value; msa.innerHTML='<option value="">— Unassigned —</option>'+TEAM.map(u=>`<option${u===cv?' selected':''}>${esc(u)}</option>`).join(''); }
   // Standalone meeting modal: linked lead
   const sml=ge('msm-lead'); if(sml){ const cv=sml.value; sml.innerHTML='<option value="">— No linked lead —</option>'+[...leads].sort((a,b)=>a.title.localeCompare(b.title)).map(l=>`<option value="${l.id}"${l.id===cv?' selected':''}>${esc(l.title.length>55?l.title.slice(0,55)+'…':l.title)}</option>`).join(''); }
   // Prospect filters
@@ -1907,7 +1911,7 @@ function renderProspectDetail(id){
             </div>
             ${m.discussed?`<div style="font-size:.79rem;color:#555;margin-top:.22rem;line-height:1.45">${esc(m.discussed)}</div>`:''}
             ${m.outcome  ?`<div style="font-size:.76rem;color:#666;margin-top:.12rem;font-style:italic">${esc(m.outcome)}</div>`:''}
-            ${m.nextAction?`<div style="font-size:.73rem;color:#e65100;margin-top:.15rem;font-weight:600">→ ${esc(m.nextAction)}${m.nextDate?' ('+m.nextDate+')':''}</div>`:''}
+            ${m.nextAction?`<div style="font-size:.73rem;color:#e65100;margin-top:.15rem;font-weight:600">→ ${esc(m.nextAction)}${m.nextDate?' ('+m.nextDate+')':''}${m.assignedTo?' · <span style="color:#1565c0">'+esc(m.assignedTo)+'</span>':''}</div>`:''}
           </div>
           <button onclick="confirmDel('smtg','${m.id}')" style="background:none;border:none;color:#e0e0e0;cursor:pointer;padding:.1rem .25rem;flex-shrink:0;font-size:.9rem" title="Delete"><i class="fa fa-times"></i></button>
         </div>`).join('')
@@ -1947,6 +1951,7 @@ function openActivityForProspect(prospectId){
   sv('msm-outcome',   '');
   sv('msm-na',        '');
   sv('msm-nd',        '');
+  sv('msm-assigned',  curUser||'');
   bootstrap.Modal.getOrCreateInstance(ge('mSMtg')).show();
 }
 
@@ -2184,6 +2189,7 @@ function openSMtgModal(id){
   sv('msm-outcome',  m?.outcome   || '');
   sv('msm-na',       m?.nextAction|| '');
   sv('msm-nd',       m?.nextDate  || '');
+  sv('msm-assigned', m?.assignedTo|| curUser || '');
   smtgStatusChanged();
   bootstrap.Modal.getOrCreateInstance(ge('mSMtg')).show();
 }
@@ -2212,6 +2218,7 @@ function saveSMtg(){
     outcome:    gv('msm-outcome'),
     nextAction: gv('msm-na'),
     nextDate:   gv('msm-nd'),
+    assignedTo: gv('msm-assigned'),
     created:    nowStr(),
   };
   if(id){ const i=smtgs.findIndex(x=>x.id===id); d.created=smtgs[i].created; smtgs[i]=d; }

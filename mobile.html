@@ -315,6 +315,16 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
       </div>
 
       <div class="field">
+        <label class="lbl">Projects specifically discussed</label>
+        <textarea id="log-projects" placeholder="Specific projects, sites or tenders…"></textarea>
+      </div>
+
+      <div class="field">
+        <label class="lbl">Outcome / result</label>
+        <textarea id="log-outcome" placeholder="Result or conclusion of the interaction…"></textarea>
+      </div>
+
+      <div class="field">
         <label class="lbl">Next action</label>
         <select id="log-na">
           <option value="">— No action set —</option>
@@ -332,6 +342,11 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
       <div class="field">
         <label class="lbl">Next action date</label>
         <input type="date" id="log-na-date">
+      </div>
+
+      <div class="field">
+        <label class="lbl">Assign follow-up to</label>
+        <select id="log-assigned"></select>
       </div>
 
       <button class="btn btn-success" id="log-save-btn" onclick="saveActivity()">
@@ -506,8 +521,25 @@ const sb = supabase.createClient(SB_URL, SB_ANON, {
 // ── STATE ──────────────────────────────────────────────────────────────────
 let session = null;
 let displayName = '';
-let allLeads = [];          // [{id,company,contact,status}]
+let allLeads = [];          // [{id,company,contact,status,_prospect}]
 let filteredLeads = [];
+// Team list for follow-up assignment (mirrors the desktop CRM fallback list).
+const TEAM_FALLBACK = ['Brendan Ferns','Charles Botha','Christine Mayienda','Elmarie Barnard','Jaco Venter','Johan Lindeque','Lanc Pieterse','Marlene McLachlan','Nicole Nieuwoudt','Ruhan Oosthuizen','SA Sales'];
+let TEAM = [...TEAM_FALLBACK];
+function populateAssignSelect(){
+  const el = ge('log-assigned'); if(!el) return;
+  const cur = el.value || displayName || '';
+  el.innerHTML = '<option value="">— Unassigned —</option>' +
+    TEAM.map(u=>`<option${u===cur?' selected':''}>${u}</option>`).join('');
+  if(cur && !TEAM.includes(cur)) el.value = cur;
+  else if(!el.value && displayName && TEAM.includes(displayName)) el.value = displayName;
+}
+async function loadTeam(){
+  try{
+    const { data } = await sb.from('team').select('name').eq('active',true).order('name');
+    if(data && data.length) TEAM = data.map(r=>r.name);
+  }catch(_e){ /* keep fallback */ }
+}
 let selectedLead = null;    // chosen lead object or null
 let followups = [];
 
@@ -562,7 +594,7 @@ async function syncQueue(){
     let ok = false;
     try {
       if(item._type === 'activity'){
-        const { error } = await sb.from('meetings').insert(item._data);
+        const { error } = await sb.from('smtgs').insert(item._data);
         ok = !error;
       } else if(item._type === 'prospect'){
         const { error } = await sb.from('prospects').insert(item._data);
@@ -677,7 +709,7 @@ async function launchApp(){
     sb.from('team').update({ user_id: session.user.id })
       .eq('email', session.user.email).is('user_id', null).then(() => {}).catch(() => {});
   }
-  await Promise.all([loadLeads(), loadFollowups()]);
+  await Promise.all([loadLeads(), loadFollowups(), loadTeam()]);
   if(navigator.onLine) syncQueue();
   loadScorecard(); // fire-and-forget: populate targets section if set
 }
@@ -771,17 +803,22 @@ function showView(v){
   const nb = ge('nav-' + v);
   if(nb) nb.classList.add('active');
   window.scrollTo(0, 0);
-  if(v === 'log'){ resetLogForm(); ge('log-date').value = today(); }
+  if(v === 'log'){ resetLogForm(); ge('log-date').value = today(); populateAssignSelect(); }
   if(v === 'followups') renderFollowups();
   if(v === 'prospect') resetProspectForm();
 }
 
 // ── LEADS ──────────────────────────────────────────────────────────────────
 async function loadLeads(){
-  const { data } = await sb.from('leads').select('id,company,contact,status').order('company');
-  if(data) allLeads = data;
-  const { data: pd } = await sb.from('prospects').select('id,company,name,type').order('company');
-  if(pd) allLeads = [...allLeads, ...pd.map(p => ({ id: p.id, company: p.company, contact: p.name, status: p.type, _prospect: true }))];
+  // Both tables store everything inside a `data` JSON blob (id,data). Older code queried
+  // flat columns that don't exist, so prospects never appeared / weren't searchable.
+  const { data: ld } = await sb.from('leads').select('id,data').order('updated_at',{ascending:false});
+  const leadArr = (ld||[]).map(r=>r.data).filter(x=>x && !x.deleted)
+    .map(l=>({ id:l.id, company:l.company||l.title||l.client||'', contact:l.contact||'', status:l.status||'', _prospect:false }));
+  const { data: pd } = await sb.from('prospects').select('id,data').order('updated_at',{ascending:false});
+  const propArr = (pd||[]).map(r=>r.data).filter(x=>x && !x.deleted)
+    .map(p=>({ id:p.id, company:p.company||'', contact:p.name||'', status:p.type||'', _prospect:true }));
+  allLeads = [...leadArr, ...propArr];
 }
 
 function openLeadModal(){
@@ -852,28 +889,34 @@ async function saveActivity(){
   const now     = new Date().toISOString();
   const dateVal = ge('log-date').value || today();
   const typeVal = getType();
-  // Full meeting object mirrors the desktop CRM meeting shape (desktop reads the data blob)
+  const isProspect = !!(selectedLead && selectedLead._prospect);
+  // Write to the SAME store the desktop prospect timeline reads: `smtgs` ({id, data}),
+  // with matching field names (discussed/projects/outcome). Link via prospectId when a
+  // prospect is picked so it appears on that prospect's Activity Log on desktop.
   const full = {
     id,
-    leadId:    selectedLead?.id || null,
-    leadTitle: (selectedLead && (selectedLead.title || selectedLead.company)) || company,
-    company:   company,
-    date:      dateVal,
-    type:      typeVal,
-    by:        displayName,
-    notes:     ge('log-notes').value.trim()  || '',
-    nextAction:ge('log-na').value.trim()     || '',
-    nextDate:  ge('log-na-date').value        || '',
-    created:   now,
-    deleted:   false,
+    date:       dateVal,
+    type:       typeVal,
+    by:         [displayName],
+    status:     'Completed',
+    leadId:     (selectedLead && !isProspect) ? selectedLead.id : '',
+    prospectId: isProspect ? selectedLead.id : '',
+    company:    company,
+    person:     selectedLead?.contact || '',
+    phone:      '',
+    email:      '',
+    discussed:  ge('log-notes').value.trim()    || '',
+    projects:   (ge('log-projects') ? ge('log-projects').value.trim() : '') || '',
+    outcome:    (ge('log-outcome')  ? ge('log-outcome').value.trim()  : '') || '',
+    nextAction: ge('log-na').value.trim()       || '',
+    nextDate:   ge('log-na-date').value          || '',
+    assignedTo: (ge('log-assigned') ? ge('log-assigned').value : '') || displayName || '',
+    by_uid:     session?.user?.id || null,
+    created:    now,
+    deleted:    false,
   };
-  // The meetings table is {id, lead_id, data} (same as the desktop CRM upsert) — no flat
-  // date/type/user_id columns. Everything lives in the data blob.
-  const rec = {
-    id,
-    lead_id: selectedLead?.id || null,
-    data:    full,
-  };
+  // smtgs table is {id, data} (same as the desktop CRM upsert). Everything lives in data.
+  const rec = { id, data: full };
 
   setBtn('log-save-btn', true, '<span class="spin"></span> Saving…');
   setMsg('log-msg', '', null);
@@ -881,7 +924,7 @@ async function saveActivity(){
   let saved = false, errMsg = '';
   if(navigator.onLine){
     try {
-      const { error } = await sb.from('meetings').insert(rec);
+      const { error } = await sb.from('smtgs').insert(rec);
       if(error) throw error;
       saved = true;
     } catch(e) { errMsg = (e && e.message) ? e.message : String(e); console.error('Activity save error:', e); }
@@ -1034,7 +1077,10 @@ function resetLogForm(){
   ge('picker-btn').classList.remove('chosen');
   ge('log-company').style.display = 'none'; ge('log-company').value = '';
   ge('log-notes').value = ''; ge('log-na').value = ''; ge('log-na-date').value = '';
+  const _pr=ge('log-projects'); if(_pr) _pr.value='';
+  const _oc=ge('log-outcome'); if(_oc) _oc.value='';
   ge('type-pills').querySelectorAll('.pill').forEach((p,i) => p.classList.toggle('on', i===0));
+  populateAssignSelect();
   setMsg('log-msg', '', null);
 }
 function resetProspectForm(){
