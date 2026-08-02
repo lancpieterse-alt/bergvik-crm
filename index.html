@@ -836,6 +836,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-light btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-sm btn-outline-primary" id="msm-addprospect-btn" style="display:none" onclick="addProspectFromMeeting()"><i class="fa fa-user-plus me-1"></i>Add to Prospects</button>
         <button class="btn btn-sm btn-bv" onclick="saveSMtg()"><i class="fa fa-save me-1"></i>Save Meeting</button>
       </div>
     </div>
@@ -2691,8 +2692,19 @@ function openSMtgModal(id){
   sv('msm-na',       m?.nextAction|| '');
   sv('msm-nd',       m?.nextDate  || '');
   sv('msm-assigned', m?.assignedTo|| curUser || '');
+  const apb=ge('msm-addprospect-btn'); if(apb) apb.style.display = (m && !m.prospectId && m.company) ? '' : 'none';
   smtgStatusChanged();
   bootstrap.Modal.getOrCreateInstance(ge('mSMtg')).show();
+}
+// From a meeting/activity whose contact isn't a prospect yet — prefill Add Prospect with their info.
+function addProspectFromMeeting(){
+  const company=gv('msm-company'), person=gv('msm-person'), phone=gv('msm-phone'), email=gv('msm-email');
+  bootstrap.Modal.getOrCreateInstance(ge('mSMtg')).hide();
+  setTimeout(()=>{
+    openProspectModal();
+    sv('mp-name', person||''); sv('mp-company', company||'');
+    sv('mp-phone', phone||''); sv('mp-email', email||'');
+  }, 250);
 }
 
 function saveSMtg(){
