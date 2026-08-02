@@ -535,6 +535,7 @@
         </div>
         <div style="display:flex;gap:.5rem;flex-shrink:0">
           <button class="btn btn-sm btn-outline-secondary" onclick="openProspectImport()"><i class="fa fa-file-import me-1"></i>Import</button>
+          <button class="btn btn-sm btn-outline-primary" onclick="openLogAct()"><i class="fa fa-clipboard-check me-1"></i>Log Activity</button>
           <button class="btn btn-sm btn-bv" onclick="openProspectModal()"><i class="fa fa-plus me-1"></i>Add Prospect</button>
         </div>
       </div>
@@ -781,6 +782,74 @@
       <div class="modal-footer">
         <button class="btn btn-light btn-sm" data-bs-dismiss="modal">Cancel</button>
         <button class="btn btn-sm btn-bv" onclick="saveSMtg()"><i class="fa fa-save me-1"></i>Save Meeting</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: LOG ACTIVITY (streamlined, prospect-first) -->
+<div class="modal fade" id="mLogAct" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--blue);color:#fff;padding:.75rem 1.1rem">
+        <h6 class="modal-title">Log Activity</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="la-prospectId">
+        <div class="row g-3">
+          <div class="col-12">
+            <label class="form-label">Prospect *</label>
+            <input type="text" class="form-control" id="la-prospect-q" list="la-prospect-dl" placeholder="Search prospect by company or name…" autocomplete="off" oninput="laResolveProspect()">
+            <datalist id="la-prospect-dl"></datalist>
+            <div id="la-prospect-hint" style="font-size:.72rem;color:#999;margin-top:.25rem"></div>
+          </div>
+
+          <div class="col-12"><hr style="margin:.15rem 0;border-color:#f0f2f5"><div style="font-size:.72rem;font-weight:700;color:#bbb;margin-bottom:.1rem">CONTACT DETAILS</div></div>
+          <div class="col-md-4"><label class="form-label">Company *</label>
+            <input type="text" class="form-control" id="la-company" placeholder="e.g. Veld du Toit Inc."></div>
+          <div class="col-md-4"><label class="form-label">Person Name</label>
+            <input type="text" class="form-control" id="la-person" placeholder="e.g. Ockert Meyer"></div>
+          <div class="col-md-2"><label class="form-label">Phone</label>
+            <input type="text" class="form-control" id="la-phone" placeholder="+27 ..."></div>
+          <div class="col-md-2"><label class="form-label">Email</label>
+            <input type="email" class="form-control" id="la-email" placeholder="name@co.com"></div>
+
+          <div class="col-12"><hr style="margin:.15rem 0;border-color:#f0f2f5"><div style="font-size:.72rem;font-weight:700;color:#bbb;margin-bottom:.1rem">ACTIVITY</div></div>
+          <div class="col-md-4"><label class="form-label">Activity Type</label>
+            <select class="form-select" id="la-type">
+              <option>In-Person Meeting</option><option>Phone Call</option><option>Teams / Video Call</option>
+              <option>Site Visit</option><option>WhatsApp / Message</option><option>Email Follow-up</option>
+              <option>Demo Day</option><option>Trade Show</option><option>Pricing Submitted</option>
+            </select></div>
+          <div class="col-md-4"><label class="form-label">Date *</label>
+            <input type="date" class="form-control" id="la-date"></div>
+          <div class="col-md-4"><label class="form-label">Logged by</label>
+            <select class="form-select" id="la-by"></select></div>
+          <div class="col-12"><label class="form-label">What was Discussed</label>
+            <textarea class="form-control" id="la-discussed" rows="3" placeholder="Summary of what was covered..."></textarea></div>
+          <div class="col-12"><label class="form-label">Projects Specifically Discussed</label>
+            <textarea class="form-control" id="la-projects" rows="2" placeholder="Specific projects, sites or tenders..."></textarea></div>
+          <div class="col-12"><label class="form-label">Outcome / Result</label>
+            <textarea class="form-control" id="la-outcome" rows="2" placeholder="Result or conclusion of the interaction..."></textarea></div>
+
+          <div class="col-12"><hr style="margin:.15rem 0;border-color:#f0f2f5"><div style="font-size:.72rem;font-weight:700;color:#bbb;margin-bottom:.1rem">FOLLOW-UP</div></div>
+          <div class="col-md-5"><label class="form-label">Next Action</label>
+            <select class="form-select" id="la-na">
+              <option value="">— Select next action —</option>
+              <option>Follow up call</option><option>Quote</option><option>Pricing Submitted</option>
+              <option>Email more Info</option><option>Setup Coffee</option><option>Demo Day</option>
+              <option>Trade Show</option><option>Other</option>
+            </select></div>
+          <div class="col-md-3"><label class="form-label">Next Contact Date</label>
+            <input type="date" class="form-control" id="la-nd"></div>
+          <div class="col-md-4"><label class="form-label">Assign follow-up to</label>
+            <select class="form-select" id="la-assigned"><option value="">— Unassigned —</option></select></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-light btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-sm btn-bv" onclick="saveLogAct()"><i class="fa fa-save me-1"></i>Save Activity</button>
       </div>
     </div>
   </div>
@@ -1857,7 +1926,7 @@ function renderProspectDetail(id){
       <span style="background:#e3f2fd;color:#1565c0;padding:.2rem .55rem;border-radius:8px;font-size:.72rem;font-weight:700">${esc(p.type||'')}</span>
       <div style="flex:1"></div>
       <button class="btn btn-sm btn-outline-secondary" onclick="openProspectModal('${p.id}')"><i class="fa fa-edit me-1"></i>Edit</button>
-      <button class="btn btn-sm btn-bv" onclick="openActivityForProspect('${p.id}')"><i class="fa fa-plus me-1"></i>Log Activity</button>
+      <button class="btn btn-sm btn-bv" onclick="openLogAct('${p.id}')"><i class="fa fa-plus me-1"></i>Log Activity</button>
     </div>
 
     <div class="row g-3 mb-3">
@@ -1896,7 +1965,7 @@ function renderProspectDetail(id){
     <div class="sc">
       <div class="sc-hdr" style="display:flex;align-items:center;justify-content:space-between">
         <h6 style="margin:0"><i class="fa fa-history me-2"></i>Activity Log <span style="font-weight:400;font-size:.8rem;color:#999">(${actLog.length})</span></h6>
-        <button class="btn btn-sm btn-bv" onclick="openActivityForProspect('${p.id}')"><i class="fa fa-plus me-1"></i>Log Activity</button>
+        <button class="btn btn-sm btn-bv" onclick="openLogAct('${p.id}')"><i class="fa fa-plus me-1"></i>Log Activity</button>
       </div>
       ${actLog.length ? actLog.map(m=>`
         <div style="display:flex;gap:.75rem;padding:.65rem 1rem;border-bottom:1px solid #f5f6f8;align-items:flex-start">
@@ -1929,6 +1998,79 @@ function qProspectStatus(id, status){
   prospects[idx].statusHistory = [...(prospects[idx].statusHistory||[]),{date:today(),from:prev,to:status,by:curUser}];
   sbPut('prospects',prospects[idx]).catch(console.error);
   renderProspectDetail(id);
+}
+
+// ── LOG ACTIVITY (streamlined, prospect-first) ─────────────────────────────
+function laBuildDatalist(){
+  const dl=ge('la-prospect-dl'); if(!dl) return;
+  dl.innerHTML = [...prospects]
+    .sort((a,b)=>(a.company||'').localeCompare(b.company||''))
+    .map(p=>`<option value="${esc((p.company||'')+' — '+(p.name||''))}"></option>`).join('');
+}
+function populateLaSelects(){
+  const by=ge('la-by'); if(by){ const cv=by.value||curUser; by.innerHTML='<option value="">— Select —</option>'+TEAM.map(u=>`<option${u===cv?' selected':''}>${esc(u)}</option>`).join(''); }
+  const as=ge('la-assigned'); if(as){ const cv=as.value||curUser; as.innerHTML='<option value="">— Unassigned —</option>'+TEAM.map(u=>`<option${u===cv?' selected':''}>${esc(u)}</option>`).join(''); }
+}
+function laResolveProspect(){
+  const q=gv('la-prospect-q').trim();
+  const p=prospects.find(x=>((x.company||'')+' — '+(x.name||''))===q);
+  if(p){
+    sv('la-prospectId',p.id);
+    sv('la-company',p.company||''); sv('la-person',p.name||'');
+    sv('la-phone',p.phone||''); sv('la-email',p.email||'');
+    ge('la-prospect-hint').innerHTML='<span style="color:#2e7d32"><i class="fa fa-check-circle me-1"></i>Linked to existing prospect</span>';
+  } else {
+    sv('la-prospectId','');
+    ge('la-prospect-hint').textContent = q ? 'No match — this will be logged as a new company (no prospect link).' : '';
+  }
+}
+function openLogAct(prospectId){
+  laBuildDatalist(); populateLaSelects();
+  sv('la-prospectId',''); sv('la-prospect-q','');
+  sv('la-company',''); sv('la-person',''); sv('la-phone',''); sv('la-email','');
+  sv('la-type','In-Person Meeting'); sv('la-date',today()); sv('la-by',curUser||'');
+  sv('la-discussed',''); sv('la-projects',''); sv('la-outcome','');
+  sv('la-na',''); sv('la-nd',''); sv('la-assigned',curUser||'');
+  ge('la-prospect-hint').textContent='';
+  if(prospectId){
+    const p=prospects.find(x=>x.id===prospectId);
+    if(p){ sv('la-prospect-q',(p.company||'')+' — '+(p.name||'')); laResolveProspect(); }
+  }
+  bootstrap.Modal.getOrCreateInstance(ge('mLogAct')).show();
+}
+function saveLogAct(){
+  const company=gv('la-company').trim();
+  if(!company){ alert('Company is required'); return; }
+  const by=gv('la-by');
+  const d={
+    id: uid(),
+    date:       gv('la-date'),
+    type:       gv('la-type'),
+    by:         by?[by]:[],
+    status:     'Completed',
+    user_id:    sbSession?.user?.id || null,
+    leadId:     '',
+    prospectId: gv('la-prospectId')||'',
+    company:    company,
+    person:     gv('la-person'),
+    phone:      gv('la-phone'),
+    email:      gv('la-email'),
+    discussed:  gv('la-discussed'),
+    projects:   gv('la-projects'),
+    outcome:    gv('la-outcome'),
+    nextAction: gv('la-na'),
+    nextDate:   gv('la-nd'),
+    assignedTo: gv('la-assigned'),
+    created:    nowStr(),
+    deleted:    false,
+  };
+  smtgs.unshift(d);
+  save(); sbPut('smtgs', d).catch(console.error);
+  bootstrap.Modal.getOrCreateInstance(ge('mLogAct')).hide();
+  if(curView==='prospect-detail') renderProspectDetail(curProspect);
+  if(curView==='smtg')            renderSMtgs();
+  if(curView==='dashboard')       renderDash();
+  if(curView==='prospects')       renderProspects();
 }
 
 function openActivityForProspect(prospectId){
