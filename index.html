@@ -341,6 +341,10 @@
             <option>Demo Day</option>
             <option>Trade Show</option>
           </select>
+          <span style="font-size:.72rem;color:#999">From</span><input type="date" id="sm-from" onchange="renderSMtgs()" style="font-size:.78rem;padding:.28rem .4rem;border:1px solid #dde3ec;border-radius:6px;background:#fff">
+          <span style="font-size:.72rem;color:#999">To</span><input type="date" id="sm-to" onchange="renderSMtgs()" style="font-size:.78rem;padding:.28rem .4rem;border:1px solid #dde3ec;border-radius:6px;background:#fff">
+          <button class="btn btn-sm btn-outline-secondary" onclick="smSetRange(7)" title="Last 7 days">7d</button>
+          <button class="btn btn-sm btn-outline-secondary" onclick="smSetRange(0)" title="Clear dates">All</button>
         </div>
         <button class="btn btn-sm btn-bv" onclick="openSMtgModal()"><i class="fa fa-plus me-1"></i>Log Meeting</button>
       </div>
@@ -368,6 +372,10 @@
             <option>Follow-up call</option><option>Email sent</option><option>WhatsApp sent</option>
             <option>Price submitted</option><option>Brochures / Information sent</option>
           </select>
+          <span style="font-size:.72rem;color:#999">From</span><input type="date" id="act-from" onchange="renderActs()" style="font-size:.78rem;padding:.28rem .4rem;border:1px solid #dde3ec;border-radius:6px;background:#fff">
+          <span style="font-size:.72rem;color:#999">To</span><input type="date" id="act-to" onchange="renderActs()" style="font-size:.78rem;padding:.28rem .4rem;border:1px solid #dde3ec;border-radius:6px;background:#fff">
+          <button class="btn btn-sm btn-outline-secondary" onclick="actSetRange(7)" title="Last 7 days">7d</button>
+          <button class="btn btn-sm btn-outline-secondary" onclick="actSetRange(0)" title="Clear dates">All</button>
         </div>
         <button class="btn btn-sm btn-bv" onclick="openLogAct('', null, 'activity')"><i class="fa fa-plus me-1"></i>Log Activity</button>
       </div>
@@ -2608,10 +2616,18 @@ function _smtgRowHtml(m,t,opts){
       <td><button onclick="event.stopPropagation();confirmDel('smtg','${m.id}')" style="background:none;border:none;color:#ddd;cursor:pointer;padding:.1rem .3rem"><i class="fa fa-times"></i></button></td>
     </tr>`;
 }
+function smSetRange(days){
+  if(days>0){ const f=new Date(); f.setDate(f.getDate()-days+1); sv('sm-from', f.toISOString().slice(0,10)); sv('sm-to', today()); }
+  else { sv('sm-from',''); sv('sm-to',''); }
+  renderSMtgs();
+}
 function renderSMtgs(){
   const q=gv('sm-q').toLowerCase(), fa=gv('sm-fna'), ft=gv('sm-ftype'), t=today();
+  const from=gv('sm-from'), to=gv('sm-to');
   let rows=[...smtgs].filter(m=>{
     if(catOf(m)!=='Meeting') return false;
+    if(from && (m.date||'')<from) return false;
+    if(to   && (m.date||'')>to)   return false;
     if(fa){ const att=Array.isArray(m.by)?m.by:(m.by?[m.by]:[]); if(!att.includes(fa)) return false; }
     if(ft&&normType(m.type)!==ft) return false;
     if(q&&![m.company,m.person,m.discussed,m.projects,m.nextAction,m.outcome].join(' ').toLowerCase().includes(q)) return false;
@@ -2625,11 +2641,20 @@ function renderSMtgs(){
   : `<tr><td colspan="11"><div class="es"><i class="fa fa-handshake"></i>No meetings logged yet.<br><small>Click "Log Meeting" to add your first one.</small></div></td></tr>`;
   ge('smtg-ftr').textContent = `${rows.length} meeting${rows.length===1?'':'s'}`;
 }
+function actSetRange(days){
+  if(days>0){ const f=new Date(); f.setDate(f.getDate()-days+1); sv('act-from', f.toISOString().slice(0,10)); sv('act-to', today()); }
+  else { sv('act-from',''); sv('act-to',''); }
+  renderActs();
+}
 function renderActs(){
   const q=(gv('act-q')||'').toLowerCase(), ft=gv('act-ftype'), t=today();
+  const from=gv('act-from'), to=gv('act-to');
   let rows=[...smtgs].filter(m=>{
     if(catOf(m)!=='Activity') return false;
     if(m.done===false) return false;   // open to-dos live in Follow-ups, not here; show completed only
+    const ad=m.doneDate||m.date||'';
+    if(from && ad<from) return false;
+    if(to   && ad>to)   return false;
     if(ft&&normType(m.type)!==ft) return false;
     if(q&&![m.company,m.person,m.discussed,m.projects,m.nextAction,m.outcome].join(' ').toLowerCase().includes(q)) return false;
     return true;
