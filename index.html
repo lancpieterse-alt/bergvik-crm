@@ -595,6 +595,8 @@
         </div>
         <div style="display:flex;gap:.5rem;flex-shrink:0">
           <button class="btn btn-sm btn-outline-secondary" onclick="openProspectImport()"><i class="fa fa-file-import me-1"></i>Import</button>
+          <button class="btn btn-sm btn-outline-primary" onclick="document.getElementById('cardScanInput').click()"><i class="fa fa-camera me-1"></i>Scan Card</button>
+          <input type="file" id="cardScanInput" accept="image/*" capture="environment" style="display:none" onchange="handleCardScan(this)">
           <button class="btn btn-sm btn-bv" onclick="openProspectModal()"><i class="fa fa-plus me-1"></i>Add Prospect</button>
         </div>
       </div>
@@ -1128,6 +1130,13 @@
               <option>Trade show</option><option>Network event</option><option>Business Function</option>
               <option>Meeting</option><option>Other</option>
             </select></div>
+          <div class="col-md-6"><label class="form-label">Website</label>
+            <input type="text" class="form-control" id="mp-website" placeholder="www.company.com"></div>
+          <div class="col-12" id="mp-cardImageRow" style="display:none">
+            <label class="form-label">Business Card</label><br>
+            <a id="mp-cardImageLink" href="#" target="_blank" rel="noopener"><img id="mp-cardImageThumb" src="" alt="Business card" style="max-height:120px;border:1px solid #ddd;border-radius:6px"></a>
+          </div>
+          <input type="hidden" id="mp-cardImage">
           <div class="col-12"><label class="form-label">Next Action</label>
             <select class="form-select" id="mp-nextAction">
               <option value="">— Select next action —</option>
@@ -1262,10 +1271,10 @@ function prospectOpenAction(p){
   const acts = smtgs.filter(m=>m && !m.deleted && m.prospectId===p.id);
   const open = acts.filter(m=> (catOf(m)==='Activity' && m.done===false) || (m.nextAction && !m.done))
     .sort((a,b)=>((b.nextDate||b.date||'')+'').localeCompare((a.nextDate||a.date||'')+''))[0];
-  if(open)        return {id: (open.category==='Activity'&&open.done===false)?open.id:null, action: open.nextAction||normType(open.type), date: open.nextDate||open.date||'', state:'open'};
-  if(acts.length) return {id:null, action:'', date:'', state:'clear'};   // touches logged, nothing pending
-  if(p.nextAction)return {id:null, action:p.nextAction, date:p.nextActionDate||'', state:'legacy'};
-  return {id:null, action:'', date:'', state:'none'};
+  if(open)        return {id: open.id, isActivity:(open.category==='Activity'&&open.done===false), action: open.nextAction||normType(open.type), date: open.nextDate||open.date||'', state:'open'};
+  if(acts.length) return {id:null, isActivity:false, action:'', date:'', state:'clear'};   // touches logged, nothing pending
+  if(p.nextAction)return {id:null, isActivity:false, action:p.nextAction, date:p.nextActionDate||'', state:'legacy'};
+  return {id:null, isActivity:false, action:'', date:'', state:'none'};
 }
 
 // ── REP PERFORMANCE METRICS ───────────────────────────────────────────────
@@ -1981,7 +1990,90 @@ function openProspectModal(id){
   sv('mp-nextAction',     p?.nextAction||'');
   sv('mp-nextActionDate', p?.nextActionDate||'');
   sv('mp-notes',          p?.notes||'');
+  sv('mp-website',        p?.website||'');
+  sv('mp-cardImage',      p?.cardImage||'');
+  _renderCardImageRow(p?.cardImage||'');
   bootstrap.Modal.getOrCreateInstance(ge('mProspect')).show();
+}
+// ── BUSINESS CARD SCAN (desktop) ───────────────────────────────────────────
+function _renderCardImageRow(url){
+  const row=ge('mp-cardImageRow'); if(!row) return;
+  if(url){ ge('mp-cardImageThumb').src=url; ge('mp-cardImageLink').href=url; row.style.display=''; }
+  else { row.style.display='none'; }
+}
+async function handleCardScan(input){
+  const file = input.files && input.files[0];
+  input.value = '';
+  if(!file) return;
+  let dataUrl, blob;
+  try{ const r = await _compressImage(file, 1600, 0.8); dataUrl=r.dataUrl; blob=r.blob; }
+  catch(err){ alert('Could not process the photo.'); return; }
+  _processCard(dataUrl, blob);
+}
+async function _processCard(dataUrl, blob){
+  _cardScanBusy(true);
+  try{
+    let cardUrl = '';
+    try{
+      const path = 'cards/' + uid() + '.jpg';
+      const up = await sb.storage.from('Card Images').upload(path, blob, { contentType:'image/jpeg', upsert:false });
+      if(!up.error){ cardUrl = sb.storage.from('Card Images').getPublicUrl(path).data.publicUrl; }
+    }catch(_e){ /* storage optional — continue */ }
+    const { data, error } = await sb.functions.invoke('card-scan', { body:{ imageBase64:dataUrl, mediaType:'image/jpeg' } });
+    if(error){
+      let d='';
+      try{ if(error.context && typeof error.context.text==='function'){ const raw=await error.context.text(); try{ const b=JSON.parse(raw); d=(b.error||'')+(b.detail?(' — '+b.detail):''); }catch(_){ d=raw.slice(0,220); } } }catch(_e){}
+      throw new Error(d || error.message || 'Edge Function error');
+    }
+    if(!data || data.error) throw new Error((data && (data.error+(data.detail?' — '+data.detail:''))) || 'Could not read card');
+    const f = data.fields || {};
+    openProspectModal();
+    sv('mp-name',    f.name||'');
+    sv('mp-company', f.company||'');
+    sv('mp-role',    f.title||'');
+    sv('mp-email',   f.email||'');
+    sv('mp-phone',   f.phone||'');
+    sv('mp-website', f.website||'');
+    sv('mp-source',  'Trade show');
+    sv('mp-cardImage', cardUrl);
+    _renderCardImageRow(cardUrl);
+  }catch(err){
+    alert('Could not read the business card.\n\n'+(err && err.message ? err.message : err)+'\n\nYou can still capture the prospect manually.');
+  }finally{
+    _cardScanBusy(false);
+  }
+}
+function _compressImage(file, maxEdge, quality){
+  return new Promise((resolve,reject)=>{
+    const img=new Image(); const url=URL.createObjectURL(file);
+    img.onload=()=>{
+      let w=img.width, h=img.height;
+      const scale=Math.min(1, maxEdge/Math.max(w,h));
+      w=Math.round(w*scale); h=Math.round(h*scale);
+      const c=document.createElement('canvas'); c.width=w; c.height=h;
+      c.getContext('2d').drawImage(img,0,0,w,h);
+      URL.revokeObjectURL(url);
+      c.toBlob(blob=>{
+        if(!blob){ reject(new Error('Image processing failed')); return; }
+        const fr=new FileReader();
+        fr.onload=()=>resolve({dataUrl:fr.result, blob});
+        fr.onerror=reject; fr.readAsDataURL(blob);
+      },'image/jpeg', quality);
+    };
+    img.onerror=()=>{ URL.revokeObjectURL(url); reject(new Error('Could not open the photo')); };
+    img.src=url;
+  });
+}
+function _cardScanBusy(on){
+  let el=ge('cardScanBusy');
+  if(on){
+    if(!el){
+      el=document.createElement('div'); el.id='cardScanBusy';
+      el.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center';
+      el.innerHTML='<div style="background:#1a3a5c;padding:22px 28px;border-radius:12px;text-align:center;color:#fff;font-weight:600"><div class="spinner-border text-light mb-2" role="status"></div><div>Reading business card…</div></div>';
+      document.body.appendChild(el);
+    }
+  } else if(el){ el.remove(); }
 }
 
 function saveProspect(){
@@ -2004,6 +2096,8 @@ function saveProspect(){
     email:          gv('mp-email').trim(),
     region:         gv('mp-region').trim(),
     source:         gv('mp-source').trim(),
+    website:        gv('mp-website').trim(),
+    cardImage:      gv('mp-cardImage')||existing?.cardImage||'',
     assigned:       gv('mp-assigned'),
     nextAction:     gv('mp-nextAction').trim(),
     nextActionDate: gv('mp-nextActionDate'),
@@ -2079,7 +2173,7 @@ function renderProspectDetail(id){
             </div>
             <div style="border-top:1px solid #f0f2f5;padding-top:.7rem">
               <div style="font-size:.67rem;color:#aaa;text-transform:uppercase;font-weight:700;margin-bottom:.3rem">Next Action</div>
-              <div style="font-size:.83rem;font-weight:600;color:${_oa.action?'#e65100':'#2e7d32'}">${_oa.action?(_oa.id?`<span style="cursor:pointer;text-decoration:underline dotted" title="View / edit this to-do" onclick="openNextAct('${p.id}',null,'${_oa.id}')">${esc(_oa.action)}</span>`:esc(_oa.action)):(_oa.state==='clear'?'✓ No open next action':'—')}</div>
+              <div style="font-size:.83rem;font-weight:600;color:${_oa.action?'#e65100':'#2e7d32'}">${_oa.action?(_oa.id?`<span style="cursor:pointer;text-decoration:underline dotted" title="View / edit" onclick="${_oa.isActivity?`openNextAct('${p.id}',null,'${_oa.id}')`:`openSMtgModal('${_oa.id}')`}">${esc(_oa.action)}</span>`:esc(_oa.action)):(_oa.state==='clear'?'✓ No open next action':'—')}</div>
               <div style="font-size:.76rem;color:${overdue?'#c62828':'#999'};margin-top:.25rem">${_oa.action?(_oa.date?(overdue?'<i class="fa fa-circle-exclamation me-1"></i>':'')+_oa.date:'No date set'):(_oa.state==='clear'?'all follow-ups handled':'')}</div>
               <button class="btn btn-sm btn-outline-primary" style="margin-top:.6rem" onclick="openNextAct('${p.id}')"><i class="fa fa-plus me-1"></i>Add To-Do</button>
             </div>
@@ -2333,7 +2427,7 @@ function renderFollowupsDue(){
       <td style="white-space:nowrap;color:${od?'#c62828':'#555'};font-weight:${od?'700':'400'}">${od?'<i class="fa fa-exclamation-circle me-1"></i>':''}${due||'—'}</td>
       <td style="font-weight:600">${esc(m.company||'—')}</td>
       <td style="font-size:.79rem">${esc(m.person||'—')}</td>
-      <td style="font-size:.79rem;color:#e65100">${(catOf(m)==='Activity'&&m.done===false)?`<span onclick="event.stopPropagation();openNextAct('${m.prospectId||''}',null,'${m.id}')" style="cursor:pointer;text-decoration:underline dotted" title="View / edit this to-do">${esc(labelOf(m))}</span>`:esc(labelOf(m))}</td>
+      <td style="font-size:.79rem;color:#e65100">${(catOf(m)==='Activity'&&m.done===false)?`<span onclick="event.stopPropagation();openNextAct('${m.prospectId||''}',null,'${m.id}')" style="cursor:pointer;text-decoration:underline dotted" title="View / edit this to-do">${esc(labelOf(m))}</span>`:`<span onclick="event.stopPropagation();openSMtgModal('${m.id}')" style="cursor:pointer;text-decoration:underline dotted" title="View the record">${esc(labelOf(m))}</span>`}</td>
       <td onclick="event.stopPropagation()" style="max-width:220px"><input type="text" value="${esc(m.followupNote||'')}" onchange="setFollowupField('${m.id}','followupNote',this.value)" placeholder="Add instructions…" style="font-size:.74rem;padding:.15rem .35rem;border:1px solid #eef1f5;border-radius:5px;width:100%"></td>
       <td onclick="event.stopPropagation()"><select onchange="setFollowupField('${m.id}','assignedTo',this.value)" style="font-size:.74rem;padding:.15rem .3rem;border:1px solid #dde3ec;border-radius:5px;max-width:150px">${['',...TEAM].map(u=>`<option value="${esc(u)}"${(m.assignedTo||'')===u?' selected':''}>${u?esc(u):'— Unassigned —'}</option>`).join('')}</select></td>
       <td style="white-space:nowrap"><button onclick="event.stopPropagation();markActionDone('${m.id}')" class="btn btn-sm" style="background:#e8f5e9;border:1px solid #a5d6a7;color:#2e7d32;font-size:.7rem;padding:.1rem .5rem"><i class="fa fa-check me-1"></i>Done</button> <button onclick="event.stopPropagation();removeAction('${m.id}')" style="background:none;border:none;color:#d0d0d0;cursor:pointer;padding:.1rem .3rem" title="Remove this to-do (logged on prospect)"><i class="fa fa-times"></i></button></td>

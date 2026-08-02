@@ -236,9 +236,14 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
     </div>
 
     <div class="vbody">
-      <button class="tile" onclick="showView('log')">
+      <button class="tile" onclick="openLog('meeting')">
         <div class="tile-icon" style="background:var(--blue-lt)"><i class="fa-solid fa-handshake" style="color:var(--blue)"></i></div>
-        <div class="tile-txt"><h3>Log Activity</h3><p>Record a meeting, call, or site visit</p></div>
+        <div class="tile-txt"><h3>Log Meeting</h3><p>A meeting, call, site visit or demo</p></div>
+        <i class="fa-solid fa-chevron-right tile-chevron"></i>
+      </button>
+      <button class="tile" onclick="openLog('activity')">
+        <div class="tile-icon" style="background:var(--green-lt)"><i class="fa-solid fa-bolt" style="color:var(--green)"></i></div>
+        <div class="tile-txt"><h3>Log Activity</h3><p>Email, WhatsApp, price or info sent</p></div>
         <i class="fa-solid fa-chevron-right tile-chevron"></i>
       </button>
       <button class="tile" id="tile-fu" onclick="showView('followups')">
@@ -278,7 +283,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
   <div id="view-log" class="view">
     <div class="top-bar">
       <button class="top-back" onclick="showView('home')"><i class="fa-solid fa-arrow-left"></i></button>
-      <h1>Log Activity</h1>
+      <h1 id="log-title">Log Meeting</h1>
     </div>
     <div class="vbody">
       <div id="log-msg" class="save-msg"></div>
@@ -293,18 +298,8 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
       </div>
 
       <div class="field">
-        <label class="lbl">Activity type</label>
-        <div class="pills" id="type-pills">
-          <button class="pill on" data-type="In-Person Meeting" onclick="pickType(this)">In-Person Meeting</button>
-          <button class="pill" data-type="Phone Call" onclick="pickType(this)">Phone Call</button>
-          <button class="pill" data-type="Teams / Video Call" onclick="pickType(this)">Teams / Video Call</button>
-          <button class="pill" data-type="Site Visit" onclick="pickType(this)">Site Visit</button>
-          <button class="pill" data-type="WhatsApp / Message" onclick="pickType(this)">WhatsApp / Message</button>
-          <button class="pill" data-type="Email Follow-up" onclick="pickType(this)">Email Follow-up</button>
-          <button class="pill" data-type="Demo Day" onclick="pickType(this)">Demo Day</button>
-          <button class="pill" data-type="Trade Show" onclick="pickType(this)">Trade Show</button>
-          <button class="pill" data-type="Pricing Submitted" onclick="pickType(this)">Pricing Submitted</button>
-        </div>
+        <label class="lbl" id="log-type-lbl">Meeting type</label>
+        <div class="pills" id="type-pills"></div>
       </div>
 
       <div class="field">
@@ -330,15 +325,12 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
       <div class="field">
         <label class="lbl">Next action</label>
         <select id="log-na">
-          <option value="">— No action set —</option>
-          <option>Follow up call</option>
-          <option>Quote</option>
-          <option>Pricing Submitted</option>
-          <option>Email more Info</option>
-          <option>Setup Coffee</option>
-          <option>Demo Day</option>
-          <option>Trade Show</option>
-          <option>Other</option>
+          <option value="">— No next action —</option>
+          <option>Follow-up call</option>
+          <option>Email sent</option>
+          <option>WhatsApp sent</option>
+          <option>Price submitted</option>
+          <option>Brochures / Information sent</option>
         </select>
       </div>
 
@@ -811,7 +803,13 @@ function showView(v){
   const nb = ge('nav-' + v);
   if(nb) nb.classList.add('active');
   window.scrollTo(0, 0);
-  if(v === 'log'){ resetLogForm(); ge('log-date').value = today(); populateAssignSelect(); }
+  if(v === 'log'){
+    fillTypePills(logMode);
+    resetLogForm(); ge('log-date').value = today(); populateAssignSelect();
+    ge('log-title').textContent = logMode==='meeting' ? 'Log Meeting' : 'Log Activity';
+    const tl=ge('log-type-lbl'); if(tl) tl.textContent = logMode==='meeting' ? 'Meeting type' : 'Activity type';
+    const sb2=ge('log-save-btn'); if(sb2) sb2.innerHTML = '<i class="fa-solid fa-check"></i> Save '+(logMode==='meeting'?'Meeting':'Activity');
+  }
   if(v === 'followups') renderFollowups();
   if(v === 'prospect') resetProspectForm();
 }
@@ -883,9 +881,18 @@ function pickType(el){
   ge('type-pills').querySelectorAll('.pill').forEach(p => p.classList.remove('on'));
   el.classList.add('on');
 }
+// ── MEETING vs ACTIVITY split (phone) ───────────────────────────────────────
+const M_MEETING_TYPES  = ['In-Person Meeting','Teams / Video Call','Phone Call','Site Visit','Demo Day','Trade Show'];
+const M_ACTIVITY_TYPES = ['Follow-up call','Email sent','WhatsApp sent','Price submitted','Brochures / Information sent'];
+let logMode = 'meeting';
+function fillTypePills(mode){
+  const list = mode==='meeting' ? M_MEETING_TYPES : M_ACTIVITY_TYPES;
+  ge('type-pills').innerHTML = list.map((tp,i)=>`<button class="pill${i===0?' on':''}" data-type="${tp}" onclick="pickType(this)">${tp}</button>`).join('');
+}
+function openLog(mode){ logMode = (mode==='activity')?'activity':'meeting'; showView('log'); }
 function getType(){
   const p = ge('type-pills').querySelector('.pill.on');
-  return p ? p.dataset.type : 'Meeting';
+  return p ? p.dataset.type : (logMode==='meeting'?'In-Person Meeting':'Follow-up call');
 }
 
 // ── SAVE ACTIVITY ──────────────────────────────────────────────────────────
@@ -901,10 +908,13 @@ async function saveActivity(){
   // Write to the SAME store the desktop prospect timeline reads: `smtgs` ({id, data}),
   // with matching field names (discussed/projects/outcome). Link via prospectId when a
   // prospect is picked so it appears on that prospect's Activity Log on desktop.
-  const full = {
+  const mode = logMode;
+  // Primary record: a Meeting (conversation) or a completed Activity (a touch you executed).
+  const primary = {
     id,
     date:       dateVal,
     type:       typeVal,
+    category:   mode==='meeting' ? 'Meeting' : 'Activity',
     by:         [displayName],
     status:     'Completed',
     leadId:     (selectedLead && !isProspect) ? selectedLead.id : '',
@@ -916,16 +926,26 @@ async function saveActivity(){
     discussed:  ge('log-notes').value.trim()    || '',
     projects:   (ge('log-projects') ? ge('log-projects').value.trim() : '') || '',
     outcome:    (ge('log-outcome')  ? ge('log-outcome').value.trim()  : '') || '',
-    nextAction: ge('log-na').value.trim()       || '',
-    nextDate:   ge('log-na-date').value          || '',
-    assignedTo: (ge('log-assigned') ? ge('log-assigned').value : '') || displayName || '',
-    followupNote: (ge('log-followup-note') ? ge('log-followup-note').value.trim() : '') || '',
     by_uid:     session?.user?.id || null,
     created:    now,
     deleted:    false,
   };
-  // smtgs table is {id, data} (same as the desktop CRM upsert). Everything lives in data.
-  const rec = { id, data: full };
+  if(mode!=='meeting'){ primary.done=true; primary.doneBy=displayName; primary.doneDate=today(); }
+  const recs = [{ id, data: primary }];
+  // The chosen Next Action becomes a separate OPEN activity (a to-do), not a field on this record.
+  const naType = ge('log-na').value.trim();
+  if(naType){
+    const tid = Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+    recs.push({ id:tid, data:{
+      id:tid, category:'Activity', type:naType,
+      prospectId: isProspect ? selectedLead.id : '', leadId:(selectedLead && !isProspect) ? selectedLead.id : '',
+      company: company, person: selectedLead?.contact || '',
+      nextDate: ge('log-na-date').value || '',
+      assignedTo: (ge('log-assigned') ? ge('log-assigned').value : '') || displayName || '',
+      followupNote: (ge('log-followup-note') ? ge('log-followup-note').value.trim() : '') || '',
+      done:false, by_uid: session?.user?.id || null, date: today(), created: now, deleted:false
+    }});
+  }
 
   setBtn('log-save-btn', true, '<span class="spin"></span> Saving…');
   setMsg('log-msg', '', null);
@@ -933,22 +953,21 @@ async function saveActivity(){
   let saved = false, errMsg = '';
   if(navigator.onLine){
     try {
-      const { error } = await sb.from('smtgs').insert(rec);
-      if(error) throw error;
+      for(const r of recs){ const { error } = await sb.from('smtgs').insert(r); if(error) throw error; }
       saved = true;
-    } catch(e) { errMsg = (e && e.message) ? e.message : String(e); console.error('Activity save error:', e); }
+    } catch(e) { errMsg = (e && e.message) ? e.message : String(e); console.error('Save error:', e); }
   }
 
-  setBtn('log-save-btn', false, '<i class="fa-solid fa-check"></i> Save Activity');
+  setBtn('log-save-btn', false, '<i class="fa-solid fa-check"></i> Save '+(mode==='meeting'?'Meeting':'Activity'));
 
   if(saved){
-    showToast('Activity saved ✓');
+    showToast((mode==='meeting'?'Meeting':'Activity')+' saved ✓');
     resetLogForm();
     showView('home');
     loadFollowups();
   } else {
     // NEVER show success when write failed
-    enqueue('activity', rec);
+    recs.forEach(r=>enqueue('activity', r));
     setMsg('log-msg', navigator.onLine
       ? ('Save failed: ' + (errMsg || 'unknown error') + ' — queued.')
       : 'No connection — queued. Will sync automatically when online.', 'err');
