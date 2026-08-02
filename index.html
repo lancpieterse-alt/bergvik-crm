@@ -585,8 +585,6 @@
         </div>
         <div style="display:flex;gap:.5rem;flex-shrink:0">
           <button class="btn btn-sm btn-outline-secondary" onclick="openProspectImport()"><i class="fa fa-file-import me-1"></i>Import</button>
-          <button class="btn btn-sm btn-outline-primary" onclick="openLogAct('', null, 'meeting')"><i class="fa fa-handshake me-1"></i>Log Meeting</button>
-          <button class="btn btn-sm btn-outline-primary" onclick="openLogAct('', null, 'activity')"><i class="fa fa-bolt me-1"></i>Log Activity</button>
           <button class="btn btn-sm btn-bv" onclick="openProspectModal()"><i class="fa fa-plus me-1"></i>Add Prospect</button>
         </div>
       </div>
@@ -880,10 +878,9 @@
           <div class="col-12"><hr style="margin:.15rem 0;border-color:#f0f2f5"><div style="font-size:.72rem;font-weight:700;color:#bbb;margin-bottom:.1rem">FOLLOW-UP</div></div>
           <div class="col-md-5"><label class="form-label">Next Action</label>
             <select class="form-select" id="la-na">
-              <option value="">— Select next action —</option>
-              <option>Follow up call</option><option>Quote</option><option>Pricing Submitted</option>
-              <option>Email more Info</option><option>Setup Coffee</option><option>Demo Day</option>
-              <option>Trade Show</option><option>Other</option>
+              <option value="">— No next action —</option>
+              <option>Follow-up call</option><option>Email sent</option><option>WhatsApp sent</option>
+              <option>Price submitted</option><option>Brochures / Information sent</option>
             </select></div>
           <div class="col-md-3"><label class="form-label">Next Contact Date</label>
             <input type="date" class="form-control" id="la-nd"></div>
@@ -896,6 +893,41 @@
       <div class="modal-footer">
         <button class="btn btn-light btn-sm" data-bs-dismiss="modal">Cancel</button>
         <button class="btn btn-sm btn-bv" onclick="saveLogAct()"><i class="fa fa-save me-1"></i>Save Activity</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: ADD TO-DO / NEXT ACTION -->
+<div class="modal fade" id="mNextAct" tabindex="-1">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--blue);color:#fff;padding:.75rem 1.1rem">
+        <h6 class="modal-title">Add To-Do / Next Action</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="na-prospectId">
+        <input type="hidden" id="na-company">
+        <input type="hidden" id="na-person">
+        <div id="na-context" style="font-size:.8rem;color:#666;margin-bottom:.7rem"></div>
+        <div class="row g-3">
+          <div class="col-md-6"><label class="form-label">Task type</label>
+            <select class="form-select" id="na-type">
+              <option>Follow-up call</option><option>Email sent</option><option>WhatsApp sent</option>
+              <option>Price submitted</option><option>Brochures / Information sent</option>
+            </select></div>
+          <div class="col-md-6"><label class="form-label">Due date</label>
+            <input type="date" class="form-control" id="na-date"></div>
+          <div class="col-md-6"><label class="form-label">Assign to</label>
+            <select class="form-select" id="na-assigned"></select></div>
+          <div class="col-12"><label class="form-label">What needs to be done</label>
+            <textarea class="form-control" id="na-note" rows="2" placeholder="e.g. Phone client to confirm the meeting date"></textarea></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-light btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-sm btn-bv" onclick="saveNextAct()"><i class="fa fa-plus me-1"></i>Add To-Do</button>
       </div>
     </div>
   </div>
@@ -1215,9 +1247,9 @@ function catOf(m){ const t = (m && typeof m==='object') ? m.type : m; if(m && m.
 // If interactions have been logged, the stored (manual) next action is treated as superseded.
 function prospectOpenAction(p){
   const acts = smtgs.filter(m=>m && !m.deleted && m.prospectId===p.id);
-  const open = acts.filter(m=>m.nextAction && !m.done)
+  const open = acts.filter(m=> (catOf(m)==='Activity' && m.done===false) || (m.nextAction && !m.done))
     .sort((a,b)=>((b.nextDate||b.date||'')+'').localeCompare((a.nextDate||a.date||'')+''))[0];
-  if(open)        return {action:open.nextAction, date:open.nextDate||'', state:'open'};
+  if(open)        return {action: open.nextAction||normType(open.type), date: open.nextDate||open.date||'', state:'open'};
   if(acts.length) return {action:'', date:'', state:'clear'};   // touches logged, nothing pending
   if(p.nextAction)return {action:p.nextAction, date:p.nextActionDate||'', state:'legacy'};
   return {action:'', date:'', state:'none'};
@@ -1993,7 +2025,7 @@ function renderProspectDetail(id){
   const overdue = _oa.action && _oa.date && _oa.date < t;
   const col = PRIO_COL[p.priority]||'#888';
   const bg  = PRIO_BG[p.priority] ||'#f5f5f5';
-  const actLog = smtgs.filter(m=>m.prospectId===p.id).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const actLog = smtgs.filter(m=>m.prospectId===p.id && m.done!==false).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
 
   ge('prospect-detail-content').innerHTML = `
     <div style="display:flex;gap:.5rem;align-items:center;margin-bottom:1rem;flex-wrap:wrap">
@@ -2018,7 +2050,10 @@ function renderProspectDetail(id){
             ${p.source  ?`<div><div style="font-size:.67rem;color:#aaa;text-transform:uppercase;font-weight:700;margin-bottom:.15rem">Source</div><div style="font-size:.82rem;color:#333">${esc(p.source)}</div></div>`:''}
             ${p.assigned?`<div><div style="font-size:.67rem;color:#aaa;text-transform:uppercase;font-weight:700;margin-bottom:.15rem">Assigned</div><div style="font-size:.82rem;color:#333">${esc(p.assigned)}</div></div>`:''}
           </div>
-          ${p.notes?`<div style="padding:.4rem 1rem .9rem;font-size:.81rem;color:#555;white-space:pre-wrap;border-top:1px solid #f0f2f5;line-height:1.55">${esc(p.notes)}</div>`:''}
+          <div style="padding:.5rem 1rem .9rem;border-top:1px solid #f0f2f5">
+            ${p.notes?`<div style="font-size:.81rem;color:#555;white-space:pre-wrap;line-height:1.55;margin-bottom:.55rem">${esc(p.notes)}</div>`:''}
+            <button class="btn btn-sm btn-outline-secondary" onclick="addProspectComment('${p.id}')"><i class="fa fa-comment-medical me-1"></i>Add comment</button>
+          </div>
         </div>
       </div>
       <div class="col-12 col-md-4">
@@ -2033,6 +2068,7 @@ function renderProspectDetail(id){
               <div style="font-size:.67rem;color:#aaa;text-transform:uppercase;font-weight:700;margin-bottom:.3rem">Next Action</div>
               <div style="font-size:.83rem;font-weight:600;color:${_oa.action?'#e65100':'#2e7d32'}">${_oa.action?esc(_oa.action):(_oa.state==='clear'?'✓ No open next action':'—')}</div>
               <div style="font-size:.76rem;color:${overdue?'#c62828':'#999'};margin-top:.25rem">${_oa.action?(_oa.date?(overdue?'<i class="fa fa-circle-exclamation me-1"></i>':'')+_oa.date:'No date set'):(_oa.state==='clear'?'all follow-ups handled':'')}</div>
+              <button class="btn btn-sm btn-outline-primary" style="margin-top:.6rem" onclick="openNextAct('${p.id}')"><i class="fa fa-plus me-1"></i>Add To-Do</button>
             </div>
           </div>
         </div>
@@ -2131,6 +2167,49 @@ function openLogAct(prospectId, prefill, mode){
   bootstrap.Modal.getOrCreateInstance(ge('mLogAct')).show();
 }
 
+// ── ADD TO-DO / NEXT ACTION (creates an OPEN activity — a planned task, not a past one) ──
+function populateNaSelect(){
+  const as=ge('na-assigned'); if(as){ const cv=as.value||curUser; as.innerHTML='<option value="">— Unassigned —</option>'+TEAM.map(u=>`<option${u===cv?' selected':''}>${esc(u)}</option>`).join(''); }
+}
+function openNextAct(prospectId, prefill){
+  populateNaSelect();
+  const p = prospectId ? prospects.find(x=>x.id===prospectId) : null;
+  sv('na-prospectId', prospectId||'');
+  sv('na-company', (p&&p.company) || (prefill&&prefill.company) || '');
+  sv('na-person',  (p&&p.name)    || (prefill&&prefill.person)  || '');
+  sv('na-type','Follow-up call'); sv('na-date',''); sv('na-assigned',curUser||''); sv('na-note','');
+  const co=gv('na-company'), pn=gv('na-person');
+  ge('na-context').innerHTML = (co||pn) ? `<i class="fa fa-user me-1"></i>${esc(pn||'')}${co?' · '+esc(co):''}` : '';
+  bootstrap.Modal.getOrCreateInstance(ge('mNextAct')).show();
+}
+function saveNextAct(){
+  const d={
+    id: uid(), category:'Activity', type: gv('na-type'),
+    prospectId: gv('na-prospectId')||'', leadId:'',
+    company: gv('na-company'), person: gv('na-person'),
+    nextDate: gv('na-date'), assignedTo: gv('na-assigned'), followupNote: gv('na-note'),
+    done:false, user_id: sbSession?.user?.id||null, date: today(), created: nowStr(), deleted:false
+  };
+  smtgs.unshift(d);
+  save(); sbPut('smtgs',d).catch(console.error);
+  bootstrap.Modal.getOrCreateInstance(ge('mNextAct')).hide();
+  if(curView==='prospect-detail') renderProspectDetail(curProspect);
+  if(curView==='followups')       renderFollowupsDue();
+  if(curView==='activities')      renderActs();
+  if(typeof renderFollowupsDue==='function') renderFollowupsDue();
+}
+// Append a timestamped comment to a prospect's notes.
+function addProspectComment(id){
+  const p=prospects.find(x=>x.id===id); if(!p) return;
+  const txt=prompt('Add a comment about this client:');
+  if(!txt || !txt.trim()) return;
+  const stamp=`[${today()}${curUser?' '+curUser:''}] `;
+  p.notes=(p.notes?p.notes+'\n':'')+stamp+txt.trim();
+  p.updated=nowStr();
+  sbPut('prospects',p).catch(console.error);
+  renderProspectDetail(id);
+}
+
 // Mark a next-action done (records who/when), then offer to log the next activity.
 function markActionDone(id){
   const m = smtgs.find(x=>x.id===id); if(!m) return;
@@ -2140,10 +2219,10 @@ function markActionDone(id){
   if(curView==='smtg')            renderSMtgs();
   if(curView==='dashboard')       renderDash();
   if(curView==='followups' && typeof renderFollowupsDue==='function') renderFollowupsDue();
+  if(curView==='activities')      renderActs();
   setTimeout(()=>{
-    if(confirm('Follow-up marked done ✓\n\nLog the next activity for this contact now?')){
-      if(m.prospectId) openLogAct(m.prospectId);
-      else openLogAct('', {company:m.company, person:m.person, phone:m.phone, email:m.email});
+    if(confirm('Done ✓\n\nSet the next action for this client now?')){
+      openNextAct(m.prospectId||'', {company:m.company, person:m.person});
     }
   }, 60);
 }
@@ -2160,13 +2239,13 @@ function setFollowupField(id, field, value){
 function renderFollowupsDue(){
   const t=today();
   const fa=gv('fu-fasgn')||'';
-  // A planned activity = an Activity record not yet completed (scheduled or future-dated) with no next-action of its own.
-  const isPlanned = m => catOf(m)==='Activity' && !m.nextAction && ((m.status||'Completed')==='Scheduled' || (m.date && m.date>t));
-  const dueOf     = m => m.nextAction ? (m.nextDate||'') : (m.date||'');
-  const labelOf   = m => m.nextAction ? m.nextAction : ('Planned: '+normType(m.type));
+  // Open items = open Activities (to-dos, done===false) + legacy records that still carry a next-action field.
+  const isOpenAct = m => catOf(m)==='Activity' && m.done===false;
+  const dueOf     = m => m.nextAction ? (m.nextDate||'') : (m.nextDate||m.date||'');
+  const labelOf   = m => m.nextAction ? m.nextAction : normType(m.type);
   let rows=smtgs.filter(m=>{
     if(!m || m.deleted || m.done) return false;
-    return !!m.nextAction || isPlanned(m);
+    return isOpenAct(m) || !!m.nextAction;
   });
   if(fa) rows=rows.filter(m=>(m.assignedTo||'')===fa);
   rows.sort((a,b)=>(dueOf(a)||'9999-99-99').localeCompare(dueOf(b)||'9999-99-99'));
@@ -2192,16 +2271,20 @@ function saveLogAct(){
   const company=gv('la-company').trim();
   if(!company){ alert('Company is required'); return; }
   const by=gv('la-by');
+  const mode=gv('la-mode')||'activity';
+  const type=gv('la-type');
+  const prospectId=gv('la-prospectId')||'';
+  // Primary record: a Meeting (conversation) or a completed Activity (a touch you executed).
   const d={
     id: uid(),
     date:       gv('la-date'),
-    type:       gv('la-type'),
-    category:   catOf(gv('la-type')),
+    type:       type,
+    category:   catOf(type),
     by:         by?[by]:[],
     status:     'Completed',
     user_id:    sbSession?.user?.id || null,
     leadId:     '',
-    prospectId: gv('la-prospectId')||'',
+    prospectId: prospectId,
     company:    company,
     person:     gv('la-person'),
     phone:      gv('la-phone'),
@@ -2209,20 +2292,32 @@ function saveLogAct(){
     discussed:  gv('la-discussed'),
     projects:   gv('la-projects'),
     outcome:    gv('la-outcome'),
-    nextAction: gv('la-na'),
-    nextDate:   gv('la-nd'),
-    assignedTo: gv('la-assigned'),
-    followupNote: gv('la-followup-note'),
     created:    nowStr(),
     deleted:    false,
   };
-  smtgs.unshift(d);
-  save(); sbPut('smtgs', d).catch(console.error);
+  // Activities logged directly are completed touches; meetings aren't "done".
+  if(mode!=='meeting'){ d.done=true; d.doneBy=curUser||''; d.doneDate=today(); }
+  const toSave=[d];
+  // The chosen Next Action becomes a separate OPEN Activity (a to-do), not a field on this record.
+  const naType=gv('la-na');
+  if(naType){
+    toSave.push({
+      id: uid(), category:'Activity', type:naType,
+      prospectId: prospectId, leadId:'',
+      company: company, person: gv('la-person'),
+      nextDate: gv('la-nd'), assignedTo: gv('la-assigned'), followupNote: gv('la-followup-note'),
+      done:false, user_id: sbSession?.user?.id||null, date: today(), created: nowStr(), deleted:false
+    });
+  }
+  toSave.forEach(r=>{ smtgs.unshift(r); sbPut('smtgs', r).catch(console.error); });
+  save();
   bootstrap.Modal.getOrCreateInstance(ge('mLogAct')).hide();
   if(curView==='prospect-detail') renderProspectDetail(curProspect);
   if(curView==='smtg')            renderSMtgs();
+  if(curView==='activities')      renderActs();
   if(curView==='dashboard')       renderDash();
   if(curView==='prospects')       renderProspects();
+  if(typeof renderFollowupsDue==='function') renderFollowupsDue();
 }
 
 function openActivityForProspect(prospectId){
@@ -2469,12 +2564,11 @@ function renderActs(){
   const q=(gv('act-q')||'').toLowerCase(), ft=gv('act-ftype'), t=today();
   let rows=[...smtgs].filter(m=>{
     if(catOf(m)!=='Activity') return false;
-    if((m.status||'Completed')==='Scheduled') return false; // completed activities only, not planned
-    if(m.date && m.date > t) return false;                  // exclude future-dated
+    if(m.done===false) return false;   // open to-dos live in Follow-ups, not here; show completed only
     if(ft&&normType(m.type)!==ft) return false;
     if(q&&![m.company,m.person,m.discussed,m.projects,m.nextAction,m.outcome].join(' ').toLowerCase().includes(q)) return false;
     return true;
-  }).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  }).sort((a,b)=>((b.doneDate||b.date||'')).localeCompare(a.doneDate||a.date||''));
   ge('act-tbody').innerHTML = rows.length ? rows.map(m=>_smtgRowHtml(m,t,{record:true})).join('')
   : `<tr><td colspan="11"><div class="es"><i class="fa fa-bolt"></i>No activities logged yet.<br><small>Click "Log Activity" to record one.</small></div></td></tr>`;
   ge('act-ftr').textContent = `${rows.length} activit${rows.length===1?'y':'ies'}`;
