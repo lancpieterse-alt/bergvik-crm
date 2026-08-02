@@ -295,12 +295,12 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
       <div class="field">
         <label class="lbl">Activity type</label>
         <div class="pills" id="type-pills">
-          <button class="pill on" data-type="Meeting" onclick="pickType(this)">Meeting</button>
-          <button class="pill" data-type="Call" onclick="pickType(this)">Call</button>
+          <button class="pill on" data-type="In-Person Meeting" onclick="pickType(this)">In-Person Meeting</button>
+          <button class="pill" data-type="Phone Call" onclick="pickType(this)">Phone Call</button>
           <button class="pill" data-type="Site Visit" onclick="pickType(this)">Site Visit</button>
+          <button class="pill" data-type="WhatsApp / Message" onclick="pickType(this)">WhatsApp / Message</button>
           <button class="pill" data-type="Demo Day" onclick="pickType(this)">Demo Day</button>
           <button class="pill" data-type="Trade Show" onclick="pickType(this)">Trade Show</button>
-          <button class="pill" data-type="WhatsApp" onclick="pickType(this)">WhatsApp</button>
         </div>
       </div>
 
@@ -317,13 +317,14 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
       <div class="field">
         <label class="lbl">Next action</label>
         <select id="log-na">
-          <option value="">Select…</option>
+          <option value="">— No action set —</option>
           <option>Follow up call</option>
-          <option>Send brochure</option>
-          <option>Email more info</option>
-          <option>Setup coffee / meeting</option>
           <option>Quote</option>
+          <option>Pricing Submitted</option>
+          <option>Email more Info</option>
+          <option>Setup Coffee</option>
           <option>Demo Day</option>
+          <option>Trade Show</option>
           <option>Other</option>
         </select>
       </div>
