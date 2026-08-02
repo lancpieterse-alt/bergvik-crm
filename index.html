@@ -2091,6 +2091,14 @@ function markActionDone(id){
   }, 60);
 }
 
+// Inline-edit a field (owner / instructions) directly from the Follow-ups Due list.
+function setFollowupField(id, field, value){
+  const m=smtgs.find(x=>x.id===id); if(!m) return;
+  m[field]=value;
+  save(); sbPut('smtgs',m).catch(console.error);
+  if(field==='assignedTo') renderFollowupsDue(); // may drop out if an owner filter is active
+}
+
 // ── FOLLOW-UPS DUE (open next-actions across all activities) ────────────────
 function renderFollowupsDue(){
   const t=today();
@@ -2108,8 +2116,8 @@ function renderFollowupsDue(){
       <td style="font-weight:600">${esc(m.company||'—')}</td>
       <td style="font-size:.79rem">${esc(m.person||'—')}</td>
       <td style="font-size:.79rem;color:#e65100">${esc(m.nextAction||'')}</td>
-      <td style="font-size:.76rem;color:#666;max-width:240px">${esc(m.followupNote||'')}</td>
-      <td style="font-size:.79rem;color:#1565c0">${esc(m.assignedTo||'—')}</td>
+      <td onclick="event.stopPropagation()" style="max-width:220px"><input type="text" value="${esc(m.followupNote||'')}" onchange="setFollowupField('${m.id}','followupNote',this.value)" placeholder="Add instructions…" style="font-size:.74rem;padding:.15rem .35rem;border:1px solid #eef1f5;border-radius:5px;width:100%"></td>
+      <td onclick="event.stopPropagation()"><select onchange="setFollowupField('${m.id}','assignedTo',this.value)" style="font-size:.74rem;padding:.15rem .3rem;border:1px solid #dde3ec;border-radius:5px;max-width:150px">${['',...TEAM].map(u=>`<option value="${esc(u)}"${(m.assignedTo||'')===u?' selected':''}>${u?esc(u):'— Unassigned —'}</option>`).join('')}</select></td>
       <td><button onclick="event.stopPropagation();markActionDone('${m.id}')" class="btn btn-sm" style="background:#e8f5e9;border:1px solid #a5d6a7;color:#2e7d32;font-size:.7rem;padding:.1rem .5rem"><i class="fa fa-check me-1"></i>Done</button></td>
     </tr>`;
   }).join('') : `<tr><td colspan="7"><div class="es"><i class="fa fa-check-circle" style="color:#4caf50"></i>No open follow-ups. All caught up!</div></td></tr>`;
