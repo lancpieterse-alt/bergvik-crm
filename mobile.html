@@ -854,14 +854,11 @@ async function saveActivity(){
     created:   now,
     deleted:   false,
   };
-  // Flat columns that actually exist on the meetings table (id, lead_id, user_id, date, type
-  // — used by the KPI counters) plus the data blob. Everything else lives in data.
+  // The meetings table is {id, lead_id, data} (same as the desktop CRM upsert) — no flat
+  // date/type/user_id columns. Everything lives in the data blob.
   const rec = {
     id,
     lead_id: selectedLead?.id || null,
-    user_id: session?.user?.id || null,
-    date:    dateVal,
-    type:    typeVal,
     data:    full,
   };
 
