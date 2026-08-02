@@ -2427,13 +2427,15 @@ function smtgStatusChanged(){
   if(disc) disc.style.display = scheduled ? 'none' : '';
 }
 
-function _smtgRowHtml(m,t){
+function _smtgRowHtml(m,t,opts){
+  const rec = !!(opts && opts.record);   // Activities log = clean read-only record
   const linkedLead = m.leadId ? leads.find(l=>l.id===m.leadId) : null;
   const overdue = m.nextDate && m.nextDate < t && !m.done;
+  const alarm = overdue && !rec;
   const scheduled = (m.status||'Completed')==='Scheduled';
   const byStr = Array.isArray(m.by)?m.by.join(', '):(m.by||'—');
   return `<tr style="cursor:pointer;font-size:.81rem" onclick="openSMtgModal('${m.id}')">
-      <td style="white-space:nowrap;color:#555;font-size:.77rem">${m.date||'—'}<br><span class="crm-status-badge crm-status-${scheduled?'scheduled':'completed'}">${scheduled?'Upcoming':'Completed'}</span>${m.scheduledBy?`<br><span style="font-size:.65rem;color:#aaa">by ${esc(m.scheduledBy)}</span>`:''}</td>
+      <td style="white-space:nowrap;color:#555;font-size:.77rem">${m.date||'—'}${rec?'':`<br><span class="crm-status-badge crm-status-${scheduled?'scheduled':'completed'}">${scheduled?'Upcoming':'Completed'}</span>`}${(!rec&&m.scheduledBy)?`<br><span style="font-size:.65rem;color:#aaa">by ${esc(m.scheduledBy)}</span>`:''}</td>
       <td style="font-weight:600">${esc(m.company||'—')}</td>
       <td style="font-size:.79rem">${esc(m.person||'—')}</td>
       <td style="font-size:.76rem;color:#888">${m.phone?`<a href="tel:${esc(m.phone)}" onclick="event.stopPropagation()" style="color:var(--blue)">${esc(m.phone)}</a>`:'—'}</td>
@@ -2441,8 +2443,8 @@ function _smtgRowHtml(m,t){
       <td style="font-size:.75rem;color:#555;max-width:130px">${esc(byStr.length>35?byStr.slice(0,35)+'…':byStr)}</td>
       <td style="font-size:.76rem;color:#444;max-width:200px">${esc((m.discussed||'').slice(0,55))}${(m.discussed||'').length>55?'…':''}</td>
       <td style="font-size:.76rem;max-width:160px">${linkedLead?`<span class="pb p-${linkedLead.priority}" style="font-size:.6rem;margin-right:3px">${linkedLead.priority}</span><span style="color:#555">${esc(linkedLead.title.slice(0,30))}${linkedLead.title.length>30?'…':''}</span>`:esc((m.projects||'').slice(0,40))+(m.projects||'').length>40?'…':''}</td>
-      <td style="font-size:.76rem;white-space:nowrap;color:${m.done?'#2e7d32':(overdue?'#c62828':'#888')}">${m.done?`<i class="fa fa-check-circle me-1"></i>Done${m.doneDate?' '+m.doneDate:''}`:(m.nextDate?`${overdue?'<i class="fa fa-exclamation-circle me-1"></i>':''}${m.nextDate}`:'—')}</td>
-      <td style="font-size:.76rem;color:#e65100;max-width:160px">${esc((m.nextAction||'').slice(0,45))}${(m.nextAction||'').length>45?'…':''}${(m.nextAction&&!m.done)?`<br><button onclick="event.stopPropagation();markActionDone('${m.id}')" style="margin-top:.2rem;background:#e8f5e9;border:1px solid #a5d6a7;color:#2e7d32;border-radius:6px;font-size:.66rem;padding:.03rem .35rem;cursor:pointer"><i class="fa fa-check me-1"></i>Mark done</button>`:''}</td>
+      <td style="font-size:.76rem;white-space:nowrap;color:${m.done?'#2e7d32':(alarm?'#c62828':'#888')}">${m.done?`<i class="fa fa-check-circle me-1"></i>Done${m.doneDate?' '+m.doneDate:''}`:(m.nextDate?`${alarm?'<i class="fa fa-exclamation-circle me-1"></i>':''}${m.nextDate}`:'—')}</td>
+      <td style="font-size:.76rem;color:#e65100;max-width:160px">${esc((m.nextAction||'').slice(0,45))}${(m.nextAction||'').length>45?'…':''}${(!rec && m.nextAction&&!m.done)?`<br><button onclick="event.stopPropagation();markActionDone('${m.id}')" style="margin-top:.2rem;background:#e8f5e9;border:1px solid #a5d6a7;color:#2e7d32;border-radius:6px;font-size:.66rem;padding:.03rem .35rem;cursor:pointer"><i class="fa fa-check me-1"></i>Mark done</button>`:''}</td>
       <td><button onclick="event.stopPropagation();confirmDel('smtg','${m.id}')" style="background:none;border:none;color:#ddd;cursor:pointer;padding:.1rem .3rem"><i class="fa fa-times"></i></button></td>
     </tr>`;
 }
@@ -2473,7 +2475,7 @@ function renderActs(){
     if(q&&![m.company,m.person,m.discussed,m.projects,m.nextAction,m.outcome].join(' ').toLowerCase().includes(q)) return false;
     return true;
   }).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-  ge('act-tbody').innerHTML = rows.length ? rows.map(m=>_smtgRowHtml(m,t)).join('')
+  ge('act-tbody').innerHTML = rows.length ? rows.map(m=>_smtgRowHtml(m,t,{record:true})).join('')
   : `<tr><td colspan="11"><div class="es"><i class="fa fa-bolt"></i>No activities logged yet.<br><small>Click "Log Activity" to record one.</small></div></td></tr>`;
   ge('act-ftr').textContent = `${rows.length} activit${rows.length===1?'y':'ies'}`;
 }
