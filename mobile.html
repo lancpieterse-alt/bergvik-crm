@@ -352,6 +352,11 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
         <select id="log-assigned"></select>
       </div>
 
+      <div class="field">
+        <label class="lbl">Instructions for assignee</label>
+        <textarea id="log-followup-note" placeholder="What should they do for the next action?"></textarea>
+      </div>
+
       <button class="btn btn-success" id="log-save-btn" onclick="saveActivity()">
         <i class="fa-solid fa-check"></i> Save Activity
       </button>
@@ -914,6 +919,7 @@ async function saveActivity(){
     nextAction: ge('log-na').value.trim()       || '',
     nextDate:   ge('log-na-date').value          || '',
     assignedTo: (ge('log-assigned') ? ge('log-assigned').value : '') || displayName || '',
+    followupNote: (ge('log-followup-note') ? ge('log-followup-note').value.trim() : '') || '',
     by_uid:     session?.user?.id || null,
     created:    now,
     deleted:    false,
@@ -1082,6 +1088,7 @@ function resetLogForm(){
   ge('log-notes').value = ''; ge('log-na').value = ''; ge('log-na-date').value = '';
   const _pr=ge('log-projects'); if(_pr) _pr.value='';
   const _oc=ge('log-outcome'); if(_oc) _oc.value='';
+  const _fn=ge('log-followup-note'); if(_fn) _fn.value='';
   ge('type-pills').querySelectorAll('.pill').forEach((p,i) => p.classList.toggle('on', i===0));
   populateAssignSelect();
   setMsg('log-msg', '', null);

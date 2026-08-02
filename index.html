@@ -845,6 +845,8 @@
             <input type="date" class="form-control" id="la-nd"></div>
           <div class="col-md-4"><label class="form-label">Assign follow-up to</label>
             <select class="form-select" id="la-assigned"><option value="">— Unassigned —</option></select></div>
+          <div class="col-12"><label class="form-label">Instructions for the assigned person</label>
+            <textarea class="form-control" id="la-followup-note" rows="2" placeholder="Explain exactly what they should do for this next action..."></textarea></div>
         </div>
       </div>
       <div class="modal-footer">
@@ -1981,6 +1983,7 @@ function renderProspectDetail(id){
             ${m.discussed?`<div style="font-size:.79rem;color:#555;margin-top:.22rem;line-height:1.45">${esc(m.discussed)}</div>`:''}
             ${m.outcome  ?`<div style="font-size:.76rem;color:#666;margin-top:.12rem;font-style:italic">${esc(m.outcome)}</div>`:''}
             ${m.nextAction?`<div style="font-size:.73rem;color:#e65100;margin-top:.15rem;font-weight:600">→ ${esc(m.nextAction)}${m.nextDate?' ('+m.nextDate+')':''}${m.assignedTo?' · <span style="color:#1565c0">'+esc(m.assignedTo)+'</span>':''}</div>`:''}
+            ${m.followupNote?`<div style="font-size:.72rem;color:#777;margin-top:.1rem;padding-left:.6rem;border-left:2px solid #ffe0b2">${esc(m.followupNote)}</div>`:''}
           </div>
           <button onclick="confirmDel('smtg','${m.id}')" style="background:none;border:none;color:#e0e0e0;cursor:pointer;padding:.1rem .25rem;flex-shrink:0;font-size:.9rem" title="Delete"><i class="fa fa-times"></i></button>
         </div>`).join('')
@@ -2030,7 +2033,7 @@ function openLogAct(prospectId){
   sv('la-company',''); sv('la-person',''); sv('la-phone',''); sv('la-email','');
   sv('la-type','In-Person Meeting'); sv('la-date',today()); sv('la-by',curUser||'');
   sv('la-discussed',''); sv('la-projects',''); sv('la-outcome','');
-  sv('la-na',''); sv('la-nd',''); sv('la-assigned',curUser||'');
+  sv('la-na',''); sv('la-nd',''); sv('la-assigned',curUser||''); sv('la-followup-note','');
   ge('la-prospect-hint').textContent='';
   if(prospectId){
     const p=prospects.find(x=>x.id===prospectId);
@@ -2061,6 +2064,7 @@ function saveLogAct(){
     nextAction: gv('la-na'),
     nextDate:   gv('la-nd'),
     assignedTo: gv('la-assigned'),
+    followupNote: gv('la-followup-note'),
     created:    nowStr(),
     deleted:    false,
   };
