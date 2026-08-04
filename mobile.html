@@ -899,6 +899,14 @@ function getType(){
 async function saveActivity(){
   const company = selectedLead?.company || ge('log-company').value.trim();
   if(!company){ setMsg('log-msg', 'Please select or enter a company.', 'err'); ge('log-company').style.display=''; ge('log-company').focus(); return; }
+  // Every meeting/activity must link to a prospect/lead so progress is trackable.
+  if(!selectedLead){
+    if(confirm('“'+company+'” isn’t in your list yet.\n\nEvery meeting must link to a prospect. Add them as a prospect now?')){
+      showView('prospect');
+      setTimeout(()=>{ const pc=ge('p-company'); if(pc) pc.value=company; const pn=ge('p-name'); if(pn) pn.focus(); }, 150);
+    }
+    return;
+  }
 
   const id      = Date.now().toString(36) + Math.random().toString(36).slice(2,6);
   const now     = new Date().toISOString();

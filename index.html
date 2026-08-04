@@ -795,7 +795,9 @@
           <!-- Row 2: Company + Person contact details -->
           <div class="col-12"><hr style="margin:.25rem 0;border-color:#f0f2f5"><div style="font-size:.72rem;font-weight:700;color:#bbb;margin-bottom:.1rem">CONTACT DETAILS</div></div>
           <div class="col-md-4"><label class="form-label">Company *</label>
-            <input type="text" class="form-control" id="msm-company" placeholder="e.g. Transnet, WBHO, Arup"></div>
+            <input type="text" class="form-control" id="msm-company" placeholder="Start typing to find a prospect…" list="msm-company-dl" autocomplete="off" oninput="msmResolveProspect()">
+            <datalist id="msm-company-dl"></datalist>
+            <div id="msm-prospect-hint" style="font-size:.72rem;color:#999;margin-top:.2rem"></div>
           <div class="col-md-4"><label class="form-label">Person Name</label>
             <input type="text" class="form-control" id="msm-person" placeholder="e.g. John Smith"></div>
           <div class="col-md-2"><label class="form-label">Phone</label>
@@ -2360,13 +2362,35 @@ function renderFollowupsDue(){
   }).join('') : `<tr><td colspan="7"><div class="es"><i class="fa fa-check-circle" style="color:#4caf50"></i>No open follow-ups. All caught up!</div></td></tr>`;
   ge('fu-ftr').textContent = `${rows.length} open follow-up${rows.length===1?'':'s'}${overdueCount?` · ${overdueCount} overdue`:''}`;
 }
+// Find an existing prospect by company (+name), or offer to add one. Returns a prospectId, or '' if the user cancels.
+// Enforces that every meeting/activity links to a prospect so progress is trackable.
+function _ensureProspect(company, person, phone, email){
+  company=(company||'').trim(); person=(person||'').trim();
+  if(!company) return '';
+  let p = prospects.find(x=>x && !x.deleted && (x.company||'').toLowerCase()===company.toLowerCase() && (!person || (x.name||'').toLowerCase()===person.toLowerCase()));
+  if(!p) p = prospects.find(x=>x && !x.deleted && (x.company||'').toLowerCase()===company.toLowerCase());
+  if(p) return p.id;
+  if(!person){ alert('Add the contact person’s name.\n\nEvery meeting/activity must be linked to a prospect so we can track progress against clients.'); return ''; }
+  if(!confirm(person+' at '+company+' isn’t in your prospect list yet.\n\nAdd them as a prospect and continue?')) return '';
+  const np={ id:uid(), name:person, company, type:'Other', priority:'WARM', role:'', status:'To Contact',
+    phone:(phone||'').trim(), email:(email||'').trim(), region:'', source:'Meeting',
+    assigned:curUser||'', nextAction:'', nextActionDate:'', notes:'', website:'', cardImage:'',
+    created:nowStr(), updated:nowStr(), deleted:false, statusHistory:[] };
+  prospects.unshift(np); sbPut('prospects',np).catch(console.error);
+  return np.id;
+}
 function saveLogAct(){
   const company=gv('la-company').trim();
   if(!company){ alert('Company is required'); return; }
   const by=gv('la-by');
   const mode=gv('la-mode')||'activity';
   const type=gv('la-type');
-  const prospectId=gv('la-prospectId')||'';
+  let prospectId=gv('la-prospectId')||'';
+  if(!prospectId){
+    prospectId=_ensureProspect(company, gv('la-person'), gv('la-phone'), gv('la-email'));
+    if(!prospectId) return;   // must link to a prospect
+    sv('la-prospectId', prospectId);
+  }
   // Primary record: a Meeting (conversation) or a completed Activity (a touch you executed).
   const d={
     id: uid(),
@@ -2689,10 +2713,32 @@ function msmFillTypes(cat){
   const list = cat==='Activity' ? ACTIVITY_TYPES : MEETING_TYPES;
   sel.innerHTML = list.map(tp=>`<option>${esc(tp)}</option>`).join('');
 }
+function msmBuildDatalist(){
+  const dl=ge('msm-company-dl'); if(!dl) return;
+  const seen=new Set(); const opts=[];
+  [...prospects].filter(p=>p&&!p.deleted&&p.company).sort((a,b)=>(a.company||'').localeCompare(b.company||''))
+    .forEach(p=>{ const c=p.company; if(seen.has(c.toLowerCase()))return; seen.add(c.toLowerCase()); opts.push(`<option value="${esc(c)}"></option>`); });
+  dl.innerHTML=opts.join('');
+}
+function msmResolveProspect(){
+  const co=(gv('msm-company')||'').trim().toLowerCase();
+  const p = co ? prospects.find(x=>x&&!x.deleted&&(x.company||'').toLowerCase()===co) : null;
+  if(p){
+    sv('msm-prospect',p.id);
+    if(!gv('msm-person')) sv('msm-person',p.name||'');
+    if(!gv('msm-phone'))  sv('msm-phone',p.phone||'');
+    if(!gv('msm-email'))  sv('msm-email',p.email||'');
+    ge('msm-prospect-hint').innerHTML='<span style="color:#2e7d32"><i class="fa fa-check-circle me-1"></i>Linked to prospect</span>';
+  } else {
+    sv('msm-prospect','');
+    ge('msm-prospect-hint').textContent = co ? 'Not a prospect yet — you’ll be asked to add them on save.' : '';
+  }
+}
 function openSMtgModal(id){
   populateSel();
   const m = id ? smtgs.find(x=>x.id===id) : null;
   msmFillTypes(m?catOf(m):'Meeting');
+  msmBuildDatalist();
   sv('msm-id', m?.id||'');
   sv('msm-prospect', m?.prospectId||'');
   sv('msm-date', m?.date || today());
@@ -2712,6 +2758,7 @@ function openSMtgModal(id){
   sv('msm-nd',       m?.nextDate  || '');
   sv('msm-assigned', m?.assignedTo|| curUser || '');
   const apb=ge('msm-addprospect-btn'); if(apb) apb.style.display = (m && !m.prospectId && m.company) ? '' : 'none';
+  const hh=ge('msm-prospect-hint'); if(hh) hh.innerHTML = (m&&m.prospectId)?'<span style="color:#2e7d32"><i class="fa fa-check-circle me-1"></i>Linked to prospect</span>':'';
   smtgStatusChanged();
   bootstrap.Modal.getOrCreateInstance(ge('mSMtg')).show();
 }
@@ -2730,7 +2777,13 @@ function saveSMtg(){
   const company=gv('msm-company').trim();
   if(!company){ alert('Company is required'); return; }
   const id=gv('msm-id');
-  const prospectId=gv('msm-prospect')||'';
+  let prospectId=gv('msm-prospect')||'';
+  const leadId=gv('msm-lead')||'';
+  if(!prospectId && !leadId){
+    prospectId=_ensureProspect(company, gv('msm-person'), gv('msm-phone'), gv('msm-email'));
+    if(!prospectId) return;   // must link to a prospect (or a lead)
+    sv('msm-prospect', prospectId);
+  }
   const d={
     id: id||uid(),
     date:       gv('msm-date'),
@@ -2740,7 +2793,7 @@ function saveSMtg(){
     status:     gv('msm-status'),
     scheduledBy: gv('msm-scheduled-by') || curUser || '',
     user_id:    sbSession?.user?.id || null,
-    leadId:     gv('msm-lead'),
+    leadId:     leadId,
     prospectId: prospectId,
     company:    company,
     person:     gv('msm-person'),
