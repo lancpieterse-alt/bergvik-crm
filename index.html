@@ -213,6 +213,9 @@
   </div>
   <div style="padding:.85rem 1rem;border-top:1px solid rgba(255,255,255,.1)">
     <div style="color:rgba(255,255,255,.45);font-size:.67rem;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:.5rem">Data Backup</div>
+    <button onclick="openPhoneLink()" style="width:100%;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);color:#fff;border-radius:6px;padding:.38rem .6rem;font-size:.74rem;cursor:pointer;text-align:left;margin-bottom:.3rem;display:flex;align-items:center;gap:.5rem">
+      <i class="fa fa-mobile-screen-button" style="font-size:.7rem"></i>Get Phone App
+    </button>
     <button onclick="backupData()" style="width:100%;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);color:#fff;border-radius:6px;padding:.38rem .6rem;font-size:.74rem;cursor:pointer;text-align:left;margin-bottom:.3rem;display:flex;align-items:center;gap:.5rem">
       <i class="fa fa-download" style="font-size:.7rem"></i>Download Backup
     </button>
@@ -911,6 +914,27 @@
   </div>
 </div>
 
+<!-- MODAL: PHONE APP LINK -->
+<div class="modal fade" id="mPhoneApp" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--blue);color:#fff;padding:.75rem 1.1rem">
+        <h6 class="modal-title"><i class="fa fa-mobile-screen-button me-2"></i>Bergvik Field — phone app</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" style="text-align:center">
+        <p style="font-size:.84rem;color:#555;margin-bottom:.9rem">Scan this with your phone, or send yourself the link. Then open it and use your browser's <b>Add to Home Screen</b> to install the field app.</p>
+        <img id="phone-qr" src="" alt="QR code" style="width:180px;height:180px;border:1px solid #eee;border-radius:8px" onerror="this.style.display='none'">
+        <div style="display:flex;gap:.4rem;margin-top:1rem">
+          <input type="text" id="phone-url" class="form-control form-control-sm" readonly onclick="this.select()">
+          <button class="btn btn-sm btn-bv" onclick="copyPhoneLink()"><i class="fa fa-copy me-1"></i>Copy</button>
+        </div>
+        <a id="phone-mail" class="btn btn-sm btn-outline-primary" style="margin-top:.6rem" href="#"><i class="fa fa-envelope me-1"></i>Email link to myself</a>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL: ADD TO-DO / NEXT ACTION -->
 <div class="modal fade" id="mNextAct" tabindex="-1">
   <div class="modal-dialog modal-dialog-scrollable">
@@ -1436,6 +1460,22 @@ function p(n){ return String(n).padStart(2,'0'); }
 function today(){ return nowStr().slice(0,10); }
 function esc(s){ const d=document.createElement('div');d.textContent=s||'';return d.innerHTML; }
 function ge(id){ return document.getElementById(id); }
+// Keep the app fresh: on load, tell any service worker to check for a new version.
+if('serviceWorker' in navigator){ window.addEventListener('load', ()=>{ navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>{ try{ r.update(); }catch(_e){} })).catch(()=>{}); }); }
+// Phone app link (auto-derives from the current live domain, so it never goes stale).
+function openPhoneLink(){
+  const url = location.origin + '/mobile.html';
+  const u=ge('phone-url'); if(u) u.value=url;
+  const qr=ge('phone-qr'); if(qr){ qr.style.display=''; qr.src='https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=0&data='+encodeURIComponent(url); }
+  const mail=ge('phone-mail'); if(mail){ mail.href='mailto:'+((typeof sbSession!=='undefined'&&sbSession?.user?.email)||'')+'?subject='+encodeURIComponent('Bergvik Field phone app')+'&body='+encodeURIComponent('Open this on your phone and use "Add to Home Screen" to install the Bergvik Field app:\n\n'+url); }
+  bootstrap.Modal.getOrCreateInstance(ge('mPhoneApp')).show();
+}
+function copyPhoneLink(){
+  const el=ge('phone-url'); if(!el) return; const url=el.value;
+  const done=()=>alert('Phone app link copied ✓');
+  if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(url).then(done).catch(()=>{ el.select(); try{document.execCommand('copy');}catch(_e){} done(); }); }
+  else { el.select(); try{document.execCommand('copy');}catch(_e){} done(); }
+}
 function gv(id){ return ge(id)?.value||''; }
 function sv(id,v){ const e=ge(id); if(e) e.value=v||''; }
 

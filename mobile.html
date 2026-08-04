@@ -1187,7 +1187,7 @@ function _mCompress(file, maxEdge, quality){
 
 // ── SERVICE WORKER ──────────────────────────────────────────────────────────
 if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('/sw.js').catch(() => {});
+  navigator.serviceWorker.register('/sw.js').then(r=>{ try{ r.update(); }catch(_e){} }).catch(() => {});
 }
 </script>
 </body>
