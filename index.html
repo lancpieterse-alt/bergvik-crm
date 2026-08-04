@@ -595,8 +595,6 @@
         </div>
         <div style="display:flex;gap:.5rem;flex-shrink:0">
           <button class="btn btn-sm btn-outline-secondary" onclick="openProspectImport()"><i class="fa fa-file-import me-1"></i>Import</button>
-          <button class="btn btn-sm btn-outline-primary" onclick="document.getElementById('cardScanInput').click()"><i class="fa fa-camera me-1"></i>Scan Card</button>
-          <input type="file" id="cardScanInput" accept="image/*" capture="environment" style="display:none" onchange="handleCardScan(this)">
           <button class="btn btn-sm btn-bv" onclick="openProspectModal()"><i class="fa fa-plus me-1"></i>Add Prospect</button>
         </div>
       </div>
@@ -2001,80 +1999,6 @@ function _renderCardImageRow(url){
   const row=ge('mp-cardImageRow'); if(!row) return;
   if(url){ ge('mp-cardImageThumb').src=url; ge('mp-cardImageLink').href=url; row.style.display=''; }
   else { row.style.display='none'; }
-}
-async function handleCardScan(input){
-  const file = input.files && input.files[0];
-  input.value = '';
-  if(!file) return;
-  let dataUrl, blob;
-  try{ const r = await _compressImage(file, 1600, 0.8); dataUrl=r.dataUrl; blob=r.blob; }
-  catch(err){ alert('Could not process the photo.'); return; }
-  _processCard(dataUrl, blob);
-}
-async function _processCard(dataUrl, blob){
-  _cardScanBusy(true);
-  try{
-    let cardUrl = '';
-    try{
-      const path = 'cards/' + uid() + '.jpg';
-      const up = await sb.storage.from('Card Images').upload(path, blob, { contentType:'image/jpeg', upsert:false });
-      if(!up.error){ cardUrl = sb.storage.from('Card Images').getPublicUrl(path).data.publicUrl; }
-    }catch(_e){ /* storage optional — continue */ }
-    const { data, error } = await sb.functions.invoke('card-scan', { body:{ imageBase64:dataUrl, mediaType:'image/jpeg' } });
-    if(error){
-      let d='';
-      try{ if(error.context && typeof error.context.text==='function'){ const raw=await error.context.text(); try{ const b=JSON.parse(raw); d=(b.error||'')+(b.detail?(' — '+b.detail):''); }catch(_){ d=raw.slice(0,220); } } }catch(_e){}
-      throw new Error(d || error.message || 'Edge Function error');
-    }
-    if(!data || data.error) throw new Error((data && (data.error+(data.detail?' — '+data.detail:''))) || 'Could not read card');
-    const f = data.fields || {};
-    openProspectModal();
-    sv('mp-name',    f.name||'');
-    sv('mp-company', f.company||'');
-    sv('mp-role',    f.title||'');
-    sv('mp-email',   f.email||'');
-    sv('mp-phone',   f.phone||'');
-    sv('mp-website', f.website||'');
-    sv('mp-source',  'Trade show');
-    sv('mp-cardImage', cardUrl);
-    _renderCardImageRow(cardUrl);
-  }catch(err){
-    alert('Could not read the business card.\n\n'+(err && err.message ? err.message : err)+'\n\nYou can still capture the prospect manually.');
-  }finally{
-    _cardScanBusy(false);
-  }
-}
-function _compressImage(file, maxEdge, quality){
-  return new Promise((resolve,reject)=>{
-    const img=new Image(); const url=URL.createObjectURL(file);
-    img.onload=()=>{
-      let w=img.width, h=img.height;
-      const scale=Math.min(1, maxEdge/Math.max(w,h));
-      w=Math.round(w*scale); h=Math.round(h*scale);
-      const c=document.createElement('canvas'); c.width=w; c.height=h;
-      c.getContext('2d').drawImage(img,0,0,w,h);
-      URL.revokeObjectURL(url);
-      c.toBlob(blob=>{
-        if(!blob){ reject(new Error('Image processing failed')); return; }
-        const fr=new FileReader();
-        fr.onload=()=>resolve({dataUrl:fr.result, blob});
-        fr.onerror=reject; fr.readAsDataURL(blob);
-      },'image/jpeg', quality);
-    };
-    img.onerror=()=>{ URL.revokeObjectURL(url); reject(new Error('Could not open the photo')); };
-    img.src=url;
-  });
-}
-function _cardScanBusy(on){
-  let el=ge('cardScanBusy');
-  if(on){
-    if(!el){
-      el=document.createElement('div'); el.id='cardScanBusy';
-      el.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center';
-      el.innerHTML='<div style="background:#1a3a5c;padding:22px 28px;border-radius:12px;text-align:center;color:#fff;font-weight:600"><div class="spinner-border text-light mb-2" role="status"></div><div>Reading business card…</div></div>';
-      document.body.appendChild(el);
-    }
-  } else if(el){ el.remove(); }
 }
 
 function saveProspect(){
