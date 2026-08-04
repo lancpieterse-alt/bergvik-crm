@@ -3122,17 +3122,24 @@ function ageBadge(l){
 
 // ── BACKUP / RESTORE ──────────────────────────────────────────────────────
 function backupData(){
-  const payload = {
-    version: 1,
-    exported: nowStr(),
-    leads, contacts, meetings, smtgs
-  };
-  const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'BergvikCRM_backup_' + today() + '.json';
-  a.click();
-  URL.revokeObjectURL(a.href);
+  try{
+    const payload = {
+      version: 2,
+      exported: nowStr(),
+      leads, contacts, meetings, smtgs, prospects
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'BergvikCRM_backup_' + today() + '.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url), 1500);
+  }catch(err){
+    alert('Backup failed: ' + (err && err.message ? err.message : err));
+  }
 }
 
 function restoreData(input){
@@ -3151,14 +3158,15 @@ function restoreData(input){
       const msg = `WARNING: Restoring a backup will overwrite the live database for ALL users. Continue?\n\n` +
         `Backup from: ${d.exported}\n` +
         `  Leads: ${d.leads.length}\n` +
+        `  Prospects: ${d.prospects?.length||0}\n` +
         `  Contacts: ${d.contacts?.length||0}\n` +
-        `  Activities: ${d.meetings?.length||0}\n` +
-        `  Meetings: ${d.smtgs?.length||0}`;
+        `  Meetings/Activities: ${d.smtgs?.length||0}`;
       if(!confirm(msg)){ input.value=''; return; }
-      leads    = d.leads    || [];
-      contacts = d.contacts || [];
-      meetings = d.meetings || [];
-      smtgs    = d.smtgs    || [];
+      leads     = d.leads     || [];
+      contacts  = d.contacts  || [];
+      meetings  = d.meetings  || [];
+      smtgs     = d.smtgs     || [];
+      if(Array.isArray(d.prospects)) prospects = d.prospects;
       // Do NOT auto-sync to Supabase — show an explicit banner instead
       localStorage.setItem('bergvik_leads',    JSON.stringify(leads));
       localStorage.setItem('bergvik_contacts', JSON.stringify(contacts));
