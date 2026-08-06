@@ -2043,7 +2043,7 @@ function _renderCardImageRow(url){
   else { row.style.display='none'; }
 }
 
-function saveProspect(){
+async function saveProspect(){
   const name    = gv('mp-name').trim();
   const company = gv('mp-company').trim();
   if(!name)    { alert('Name is required');    return; }
@@ -2080,10 +2080,17 @@ function saveProspect(){
   };
   if(existing){ prospects[prospects.findIndex(p=>p.id===id)]=d; }
   else         { prospects.unshift(d); }
-  save(); sbPut('prospects',d).catch(console.error);
+  save();
+  // Persist to Supabase and SURFACE any failure — a rejected save must not be silent.
+  let sbErr=null;
+  try{
+    const { error } = await sb.from('prospects').upsert({ id:d.id, data:d, updated_at:new Date().toISOString() });
+    if(error) throw error;
+  }catch(err){ sbErr = (err&&err.message)?err.message:String(err); console.error('Prospect save error:', err); }
   bootstrap.Modal.getOrCreateInstance(ge('mProspect')).hide();
   if(curView==='prospects')       renderProspects();
   if(curView==='prospect-detail') renderProspectDetail(d.id);
+  if(sbErr) alert('⚠ This prospect saved on your screen but the SERVER rejected it:\n\n'+sbErr+'\n\nIt may not be visible to others or after a refresh. Please screenshot this and send it to Lanc.');
 }
 
 function openProspectDetail(id){
