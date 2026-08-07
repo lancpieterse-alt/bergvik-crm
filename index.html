@@ -2080,16 +2080,21 @@ function saveProspect(){
   };
   if(existing){ prospects[prospects.findIndex(p=>p.id===id)]=d; }
   else         { prospects.unshift(d); }
-  save();
-  // Close immediately — NEVER block the UI on the network.
-  bootstrap.Modal.getOrCreateInstance(ge('mProspect')).hide();
-  if(curView==='prospects')       renderProspects();
-  if(curView==='prospect-detail') renderProspectDetail(d.id);
+  // CLOSE THE WINDOW FIRST — nothing below can ever leave it stuck open.
+  try{ bootstrap.Modal.getOrCreateInstance(ge('mProspect')).hide(); }catch(e){ console.error('modal hide', e); }
+  // Belt-and-braces: also strip any lingering modal/backdrop state.
+  try{ ge('mProspect').classList.remove('show'); ge('mProspect').style.display='none';
+       document.querySelectorAll('.modal-backdrop').forEach(b=>b.remove());
+       document.body.classList.remove('modal-open'); document.body.style.removeProperty('overflow'); document.body.style.removeProperty('padding-right'); }catch(e){}
+  try{ save(); }catch(e){ console.error('save() failed', e); }
+  try{ if(curView==='prospects') renderProspects(); if(curView==='prospect-detail') renderProspectDetail(d.id); }catch(e){ console.error('render', e); }
   // Persist to Supabase in the background; surface a real server rejection without hanging.
-  sb.from('prospects').upsert({ id:d.id, data:d, updated_at:new Date().toISOString() })
-    .then(res=>{ if(res && res.error){ console.error('Prospect save error:', res.error);
-      alert('⚠ Prospect "'+(d.name||'')+'" saved on your screen but the server rejected it:\n\n'+res.error.message+'\n\nPlease screenshot this and send to Lanc.'); } })
-    .catch(err=>{ console.error('Prospect save error:', err); });
+  try{
+    sb.from('prospects').upsert({ id:d.id, data:d, updated_at:new Date().toISOString() })
+      .then(res=>{ if(res && res.error){ console.error('Prospect save error:', res.error);
+        alert('⚠ Prospect "'+(d.name||'')+'" saved on your screen but the server rejected it:\n\n'+res.error.message+'\n\nPlease screenshot this and send to Lanc.'); } })
+      .catch(err=>{ console.error('Prospect save error:', err); });
+  }catch(e){ console.error('upsert dispatch', e); }
 }
 
 function openProspectDetail(id){
