@@ -203,7 +203,7 @@
     <div class="nav-lnk" id="nl-activities" onclick="showView('activities')"><i class="fa fa-bolt"></i>Activities</div>
     <div class="nav-lnk" id="nl-followups" onclick="showView('followups')"><i class="fa fa-clipboard-check"></i>Follow-ups <span id="fu-nav-badge" style="display:none;background:#c62828;color:#fff;border-radius:10px;font-size:.62rem;font-weight:700;padding:.05rem .4rem;margin-left:.25rem"></span></div>
     <div class="nav-lnk" id="nl-pipeline"  onclick="showView('pipeline')"><i class="fa fa-table-columns"></i>Pipeline</div>
-    <div class="nav-lnk" id="nl-meetings"  onclick="showView('meetings')"><i class="fa fa-comments"></i>All Activity</div>
+    <div class="nav-lnk" id="nl-meetings"  onclick="showView('meetings')" style="display:none"><i class="fa fa-comments"></i>All Activity</div>
     <div class="nav-lnk" id="nl-l2b" onclick="showView('l2b')"><i class="fa fa-satellite-dish"></i>L2B Inbox</div>
     <div class="nav-lnk" id="nl-digest" onclick="showView('digest')"><i class="fa fa-chart-line"></i>Weekly Digest</div>
     <div class="nav-lnk" id="nl-goals" onclick="showView('goals')"><i class="fa fa-bullseye"></i>Goals</div>
@@ -1158,7 +1158,7 @@
             <select class="form-select" id="mp-source">
               <option value="">Select…</option>
               <option>Trade show</option><option>Network event</option><option>Business Function</option>
-              <option>Meeting</option><option>Other</option>
+              <option>Meeting</option><option>Project</option><option>LinkedIn</option><option>Referral</option><option>Other</option>
             </select></div>
           <div class="col-md-6"><label class="form-label">Website</label>
             <input type="text" class="form-control" id="mp-website" placeholder="www.company.com"></div>
@@ -2266,8 +2266,12 @@ function populateNaSelect(){
 }
 function openNextAct(prospectId, prefill, existingId){
   populateNaSelect();
-  const ex = existingId ? smtgs.find(x=>x.id===existingId) : null;
-  const p = prospectId ? prospects.find(x=>x.id===prospectId) : null;
+  const isRec = existingId && existingId.indexOf('prospect:')===0;
+  const recP = isRec ? prospects.find(x=>x.id===existingId.slice(9)) : null;
+  const ex = isRec
+    ? (recP ? {id:existingId, prospectId:recP.id, company:recP.company, person:recP.name, type:recP.nextAction, nextDate:recP.nextActionDate, assignedTo:recP.assigned, followupNote:recP.nextActionNote} : null)
+    : (existingId ? smtgs.find(x=>x.id===existingId) : null);
+  const p = prospectId ? prospects.find(x=>x.id===prospectId) : (recP||null);
   sv('na-id', ex? ex.id : '');
   sv('na-prospectId', (ex&&ex.prospectId) || prospectId || '');
   sv('na-company', (ex&&ex.company) || (p&&p.company) || (prefill&&prefill.company) || '');
@@ -2285,6 +2289,14 @@ function openNextAct(prospectId, prefill, existingId){
 }
 function saveNextAct(){
   const id=gv('na-id');
+  if(id && id.indexOf('prospect:')===0){
+    const p=prospects.find(x=>x.id===id.slice(9));
+    if(p){ p.nextAction=gv('na-type'); p.nextActionDate=gv('na-date'); p.assigned=gv('na-assigned'); p.nextActionNote=gv('na-note'); p.updated=nowStr(); save(); sbPut('prospects',p).catch(console.error); }
+    bootstrap.Modal.getOrCreateInstance(ge('mNextAct')).hide();
+    if(curView==='prospect-detail') renderProspectDetail(curProspect);
+    if(curView==='followups')       renderFollowupsDue();
+    return;
+  }
   if(id){
     const m=smtgs.find(x=>x.id===id);
     if(m){ m.type=gv('na-type'); m.nextDate=gv('na-date'); m.assignedTo=gv('na-assigned'); m.followupNote=gv('na-note');
@@ -2324,6 +2336,23 @@ function addProspectComment(id){
 
 // Mark a next-action done (records who/when), then offer to log the next activity.
 function markActionDone(id){
+  if(id && id.indexOf('prospect:')===0){
+    const p=prospects.find(x=>x.id===id.slice(9)); if(!p) return;
+    // Log the completed touch as an Activity, then clear the prospect-record action.
+    const t2={ id:uid(), category:'Activity', type:p.nextAction||'Follow-up call', prospectId:p.id, leadId:'',
+      company:p.company||'', person:p.name||'', by:curUser?[curUser]:[], status:'Completed',
+      nextAction:'', nextDate:'', assignedTo:'', followupNote:'',
+      done:true, doneBy:curUser||'', doneDate:today(), user_id:sbSession?.user?.id||null, date:today(), created:nowStr(), deleted:false };
+    smtgs.unshift(t2); sbPut('smtgs',t2).catch(console.error);
+    p.nextAction=''; p.nextActionDate=''; p.nextActionNote=''; p.updated=nowStr(); sbPut('prospects',p).catch(console.error);
+    save();
+    if(curView==='prospect-detail') renderProspectDetail(curProspect);
+    if(curView==='followups')       renderFollowupsDue();
+    if(curView==='activities')      renderActs();
+    if(curView==='dashboard')       renderDash();
+    setTimeout(()=>{ if(confirm('Done ✓\n\nSet the next action for this client now?')) openNextAct(p.id,{company:p.company,person:p.name}); },60);
+    return;
+  }
   const m = smtgs.find(x=>x.id===id); if(!m) return;
   m.done=true; m.doneBy=curUser||''; m.doneDate=today();
   save(); sbPut('smtgs',m).catch(console.error);
@@ -2341,6 +2370,14 @@ function markActionDone(id){
 
 // Inline-edit a field (owner / instructions) directly from the Follow-ups Due list.
 function setFollowupField(id, field, value){
+  if(id && id.indexOf('prospect:')===0){
+    const p=prospects.find(x=>x.id===id.slice(9)); if(!p) return;
+    if(field==='assignedTo') p.assigned=value;
+    else if(field==='followupNote') p.nextActionNote=value;
+    p.updated=nowStr(); save(); sbPut('prospects',p).catch(console.error);
+    if(field==='assignedTo') renderFollowupsDue();
+    return;
+  }
   const m=smtgs.find(x=>x.id===id); if(!m) return;
   m[field]=value;
   save(); sbPut('smtgs',m).catch(console.error);
@@ -2372,6 +2409,16 @@ function migrateLegacyNextActions(){
 
 // Remove a to-do / next action — soft-delete, and log who removed it on the prospect profile.
 function removeAction(id){
+  if(id && id.indexOf('prospect:')===0){
+    const p=prospects.find(x=>x.id===id.slice(9)); if(!p) return;
+    const plabel=p.nextAction||'(none)';
+    if(!confirm('Remove this next action: "'+plabel+'"?\n\nIt will be logged on the prospect profile showing who removed it.')) return;
+    const pstamp=`[${today()}${curUser?' '+curUser:''}] `;
+    p.notes=(p.notes?p.notes+'\n':'')+pstamp+'Removed next action: '+plabel+(p.nextActionDate?' (was due '+p.nextActionDate+')':'');
+    p.nextAction=''; p.nextActionDate=''; p.nextActionNote=''; p.updated=nowStr(); sbPut('prospects',p).catch(console.error);
+    save(); renderFollowupsDue(); if(curView==='prospect-detail') renderProspectDetail(curProspect);
+    return;
+  }
   const m=smtgs.find(x=>x.id===id); if(!m) return;
   const label=m.nextAction||normType(m.type);
   if(!confirm('Remove this to-do: "'+label+'"?\n\nIt will be logged on the prospect profile showing who removed it.')) return;
@@ -2391,7 +2438,7 @@ function removeAction(id){
 function renderFollowupsDue(){
   const t=today();
   const fa=gv('fu-fasgn')||'';
-  // Open items = open Activities (to-dos, done===false) + legacy records that still carry a next-action field.
+  // Open items = open Activities (to-dos) + legacy meeting next-actions + next-actions still stored on the prospect record.
   const isOpenAct = m => catOf(m)==='Activity' && m.done===false;
   const dueOf     = m => m.nextAction ? (m.nextDate||'') : (m.nextDate||m.date||'');
   const labelOf   = m => m.nextAction ? m.nextAction : normType(m.type);
@@ -2400,6 +2447,16 @@ function renderFollowupsDue(){
     if(!m || m.deleted || m.done) return false;
     return isOpenAct(m) || !!m.nextAction;
   });
+  // Prospects whose next action still lives on the prospect record (no separate to-do yet) — surfaced as synthetic to-do rows.
+  prospects.forEach(p=>{
+    if(!p || p.deleted) return;
+    if(prospectOpenAction(p).state!=='legacy') return;   // 'open' already captured above; 'clear'/'none' = nothing pending
+    rows.push({ id:'prospect:'+p.id, prospectId:p.id, company:p.company||'', person:p.name||'',
+      assignedTo:p.assigned||'', followupNote:p.nextActionNote||'', nextAction:p.nextAction||'',
+      nextDate:p.nextActionDate||'', date:'', type:p.nextAction||'', category:'Activity', done:false, deleted:false });
+  });
+  // "Due only": overdue, due today, or undated. Future-dated items surface automatically when their date arrives.
+  rows=rows.filter(m=>{ const d=dueOf(m); return !d || d<=t; });
   if(fa) rows=rows.filter(m=>(m.assignedTo||'')===fa);
   if(q) rows=rows.filter(m=>[m.company,m.person,labelOf(m),m.followupNote,m.assignedTo].join(' ').toLowerCase().includes(q));
   rows.sort((a,b)=>(dueOf(a)||'9999-99-99').localeCompare(dueOf(b)||'9999-99-99'));
