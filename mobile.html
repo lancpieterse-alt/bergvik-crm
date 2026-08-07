@@ -326,6 +326,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
         <label class="lbl">Next action</label>
         <select id="log-na">
           <option value="">— No next action —</option>
+          <option>Friendly Check-in</option>
           <option>Follow-up call</option>
           <option>Email sent</option>
           <option>WhatsApp sent</option>
@@ -441,6 +442,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
         <select id="p-na">
           <option value="">Select…</option>
           <option>Follow up call</option>
+          <option>Friendly Check-in</option>
           <option>Send brochure</option>
           <option>Email more info</option>
           <option>Setup coffee / meeting</option>
@@ -883,7 +885,7 @@ function pickType(el){
 }
 // ── MEETING vs ACTIVITY split (phone) ───────────────────────────────────────
 const M_MEETING_TYPES  = ['In-Person Meeting','Teams / Video Call','Phone Call','Site Visit','Demo Day','Trade Show'];
-const M_ACTIVITY_TYPES = ['Follow-up call','Email sent','WhatsApp sent','Price submitted','Brochures / Information sent'];
+const M_ACTIVITY_TYPES = ['Follow-up call','Friendly Check-in','Email sent','WhatsApp sent','Price submitted','Brochures / Information sent'];
 let logMode = 'meeting';
 function fillTypePills(mode){
   const list = mode==='meeting' ? M_MEETING_TYPES : M_ACTIVITY_TYPES;

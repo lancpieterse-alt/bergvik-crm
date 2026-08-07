@@ -746,6 +746,7 @@
             <select class="form-select" id="ml-na">
               <option value="">— No action set —</option>
               <option>Follow up call</option>
+              <option>Friendly Check-in</option>
               <option>Quote</option>
               <option>Email more Info</option>
               <option>Setup Coffee</option>
@@ -828,6 +829,7 @@
             <select class="form-select" id="msm-na">
               <option value="">— Select next action —</option>
               <option>Follow up call</option>
+              <option>Friendly Check-in</option>
               <option>Quote</option>
               <option>Email more Info</option>
               <option>Setup Coffee</option>
@@ -896,6 +898,7 @@
           <div class="col-md-5"><label class="form-label">Next Action</label>
             <select class="form-select" id="la-na">
               <option value="">— No next action —</option>
+              <option>Friendly Check-in</option>
               <option>Follow-up call</option><option>Email sent</option><option>WhatsApp sent</option>
               <option>Price submitted</option><option>Brochures / Information sent</option>
             </select></div>
@@ -1007,6 +1010,7 @@
             <select class="form-select" id="mm-na">
               <option value="">— No action set —</option>
               <option>Follow up call</option>
+              <option>Friendly Check-in</option>
               <option>Quote</option>
               <option>Pricing Submitted</option>
               <option>Email more Info</option>
@@ -1167,6 +1171,7 @@
             <select class="form-select" id="mp-nextAction">
               <option value="">— Select next action —</option>
               <option>Follow up call</option>
+              <option>Friendly Check-in</option>
               <option>Send brochure</option>
               <option>Email more info</option>
               <option>Setup coffee / meeting</option>
@@ -1285,7 +1290,7 @@ const PORDER   = {HIGH:0,MEDIUM:1,PIPELINE:2,LOW:3};
 // ── MEETING vs ACTIVITY split ─────────────────────────────────────────────
 // Meetings = live discussions with a 3rd party. Activities = touches/execution.
 const MEETING_TYPES  = ['In-Person Meeting','Teams / Video Call','Phone Call','Site Visit','Demo Day','Trade Show'];
-const ACTIVITY_TYPES = ['Follow-up call','Email sent','WhatsApp sent','Price submitted','Brochures / Information sent'];
+const ACTIVITY_TYPES = ['Follow-up call','Friendly Check-in','Email sent','WhatsApp sent','Price submitted','Brochures / Information sent'];
 // Old/loose labels mapped to the new canonical set (for display + categorisation of existing data)
 const TYPE_RENAME = {'Email Follow-up':'Email sent','WhatsApp / Message':'WhatsApp sent','Pricing Submitted':'Price submitted','Follow up call':'Follow-up call','Email more Info':'Email sent'};
 const _ACT_SET = new Set([...ACTIVITY_TYPES,'Email Follow-up','WhatsApp / Message','Pricing Submitted','Follow up call','Email more Info']);
