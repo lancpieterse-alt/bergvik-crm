@@ -511,7 +511,7 @@
 </div>
 
 <!-- DISMISS L2B LEAD MODAL -->
-<div class="modal fade" id="mDismissL2B" tabindex="-1">
+<div class="modal" id="mDismissL2B" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered" style="max-width:400px">
     <div class="modal-content">
       <div class="modal-header" style="background:#546e7a;color:#fff;padding:.75rem 1rem">
@@ -545,7 +545,7 @@
 </div>
 
 <!-- ASSIGN L2B LEAD MODAL -->
-<div class="modal fade" id="mAssignL2B" tabindex="-1">
+<div class="modal" id="mAssignL2B" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered" style="max-width:380px">
     <div class="modal-content">
       <div class="modal-header" style="background:#e65100;color:#fff;padding:.75rem 1rem">
@@ -638,7 +638,7 @@
   </div><!-- /content -->
 </div><!-- /main -->
 
-<div class="modal fade" id="mLead" tabindex="-1">
+<div class="modal" id="mLead" tabindex="-1">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header" style="background:var(--blue);color:#fff;padding:.75rem 1.1rem">
@@ -765,7 +765,7 @@
 </div>
 
 <!-- MODAL: STANDALONE MEETING -->
-<div class="modal fade" id="mSMtg" tabindex="-1">
+<div class="modal" id="mSMtg" tabindex="-1">
   <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header" style="background:var(--blue);color:#fff;padding:.75rem 1.1rem">
@@ -849,7 +849,7 @@
 </div>
 
 <!-- MODAL: LOG ACTIVITY (streamlined, prospect-first) -->
-<div class="modal fade" id="mLogAct" tabindex="-1">
+<div class="modal" id="mLogAct" tabindex="-1">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header" style="background:var(--blue);color:#fff;padding:.75rem 1.1rem">
@@ -915,7 +915,7 @@
 </div>
 
 <!-- MODAL: PHONE APP LINK -->
-<div class="modal fade" id="mPhoneApp" tabindex="-1">
+<div class="modal" id="mPhoneApp" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header" style="background:var(--blue);color:#fff;padding:.75rem 1.1rem">
@@ -936,7 +936,7 @@
 </div>
 
 <!-- MODAL: ADD TO-DO / NEXT ACTION -->
-<div class="modal fade" id="mNextAct" tabindex="-1">
+<div class="modal" id="mNextAct" tabindex="-1">
   <div class="modal-dialog modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header" style="background:var(--blue);color:#fff;padding:.75rem 1.1rem">
@@ -974,7 +974,7 @@
 </div>
 
 <!-- MODAL: LOG MEETING -->
-<div class="modal fade" id="mMtg" tabindex="-1">
+<div class="modal" id="mMtg" tabindex="-1">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header" style="background:var(--blue);color:#fff;padding:.75rem 1.1rem">
@@ -1033,7 +1033,7 @@
 </div>
 
 <!-- MODAL: ADD CONTACT -->
-<div class="modal fade" id="mCon" tabindex="-1">
+<div class="modal" id="mCon" tabindex="-1">
   <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header" style="background:var(--blue);color:#fff;padding:.75rem 1.1rem">
@@ -1066,7 +1066,7 @@
 </div>
 
 <!-- MODAL: L2B IMPORT -->
-<div class="modal fade" id="mL2B" tabindex="-1">
+<div class="modal" id="mL2B" tabindex="-1">
   <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header" style="background:var(--blue);color:#fff;padding:.75rem 1.1rem">
@@ -1111,7 +1111,7 @@
 </div>
 
 <!-- MODAL: ADD / EDIT PROSPECT -->
-<div class="modal fade" id="mProspect" tabindex="-1">
+<div class="modal" id="mProspect" tabindex="-1">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header" style="background:var(--blue);color:#fff;padding:.75rem 1.1rem">
@@ -1188,7 +1188,7 @@
 </div>
 
 <!-- MODAL: IMPORT PROSPECTS -->
-<div class="modal fade" id="mProspectImport" tabindex="-1">
+<div class="modal" id="mProspectImport" tabindex="-1">
   <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header" style="background:var(--blue);color:#fff;padding:.75rem 1.1rem">
@@ -1228,7 +1228,7 @@
 </div>
 
 <!-- MODAL: CONFIRM DELETE -->
-<div class="modal fade" id="mDel" tabindex="-1">
+<div class="modal" id="mDel" tabindex="-1">
   <div class="modal-dialog modal-sm">
     <div class="modal-content">
       <div class="modal-body text-center py-4">
@@ -1460,8 +1460,10 @@ function p(n){ return String(n).padStart(2,'0'); }
 function today(){ return nowStr().slice(0,10); }
 function esc(s){ const d=document.createElement('div');d.textContent=s||'';return d.innerHTML; }
 function ge(id){ return document.getElementById(id); }
-// Keep the app fresh: on load, tell any service worker to check for a new version.
-if('serviceWorker' in navigator){ window.addEventListener('load', ()=>{ navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>{ try{ r.update(); }catch(_e){} })).catch(()=>{}); }); }
+// Keep the app fresh: fully remove any old service worker + caches so the app
+// ALWAYS loads the latest code from the network (this kills the stale-version problem).
+if('serviceWorker' in navigator){ navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>{ try{ r.unregister(); }catch(_e){} })).catch(()=>{}); }
+if('caches' in window){ caches.keys().then(ks=>ks.forEach(k=>{ try{ caches.delete(k); }catch(_e){} })).catch(()=>{}); }
 // Phone app link (auto-derives from the current live domain, so it never goes stale).
 function openPhoneLink(){
   const url = location.origin + '/mobile.html';
