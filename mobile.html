@@ -1008,7 +1008,7 @@ async function loadFollowups(){
       if(m.done===true) return;
       if(!((m.category==='Activity') || m.nextAction)) return;
       if((m.assignedTo||'')!==me) return;
-      items.push({ company:m.company||'', contact:m.person||'', action:labelOf(m), due:dueOf(m), kind:'activity' });
+      items.push({ company:m.company||'', contact:m.person||'', action:labelOf(m), due:dueOf(m), kind:'activity', _rec:m });
     });
     // 2) Prospect next-actions still on the prospect record (no separate to-do yet), assigned to me
     const withTodo = new Set(smtgs.map(m=>m.prospectId).filter(Boolean));
@@ -1016,14 +1016,14 @@ async function loadFollowups(){
       if(!p.nextAction) return;
       if((p.assigned||'')!==me) return;
       if(withTodo.has(p.id)) return;
-      items.push({ company:p.company||'', contact:p.name||'', action:p.nextAction, due:p.nextActionDate||'', kind:'prospect' });
+      items.push({ company:p.company||'', contact:p.name||'', action:p.nextAction, due:p.nextActionDate||'', kind:'prospect', _rec:p });
     });
     // 3) Lead next-actions assigned to me (kept under Leads on desktop; surfaced here as personal tasks)
     leads.forEach(l=>{
       if(!l.nextAction || !l.nextActionDate) return;
       if((l.assigned||'')!==me) return;
       if(l.status==='Won' || l.status==='Dead / Lost') return;
-      items.push({ company:l.company||l.title||l.client||'', contact:l.contact||'', action:l.nextAction, due:l.nextActionDate, kind:'lead' });
+      items.push({ company:l.company||l.title||l.client||'', contact:l.contact||'', action:l.nextAction, due:l.nextActionDate, kind:'lead', _rec:l });
     });
     items.sort((a,b)=>(a.due||'9999-99-99').localeCompare(b.due||'9999-99-99'));
     followups = items;
@@ -1056,7 +1056,7 @@ function renderFollowups(){
   const t = today();
   const horizon=(()=>{ const d=new Date(t+'T00:00:00Z'); d.setUTCDate(d.getUTCDate()+7); return d.toISOString().slice(0,10); })();
   const kindLbl = {activity:'Activity', prospect:'Prospect', lead:'Lead'};
-  body.innerHTML = followups.map(f => {
+  body.innerHTML = followups.map((f,i) => {
     let bg,fg,lbl;
     if(f.due && f.due<t){ bg='var(--red-lt)'; fg='var(--red)'; lbl='Overdue · '+f.due; }
     else if(f.due && f.due<=horizon){ bg='#fff4e0'; fg='#c77800'; lbl=(f.due===t?'Today':f.due); }
@@ -1068,8 +1068,49 @@ function renderFollowups(){
       ${f.contact ? `<div style="font-size:.8rem;color:var(--muted)">${esc(f.contact)}</div>` : ''}
       ${f.action ? `<div style="font-size:.87rem;margin-top:.4rem;color:#444"><i class="fa-solid fa-arrow-right" style="color:var(--blue);margin-right:.3rem"></i>${esc(f.action)}</div>` : ''}
       <div style="font-size:.66rem;color:#9aa4b2;margin-top:.35rem;text-transform:uppercase;letter-spacing:.3px">${kindLbl[f.kind]||''}</div>
+      <div style="display:flex;gap:.5rem;margin-top:.6rem">
+        <button onclick="fuDone(${i})" style="flex:1;background:#e8f5e9;border:1px solid #a5d6a7;color:#2e7d32;border-radius:9px;padding:.5rem;font-weight:700;font-size:.82rem"><i class="fa-solid fa-check" style="margin-right:.3rem"></i>Done</button>
+        <button onclick="fuLog(${i})" style="flex:1;background:var(--blue);border:none;color:#fff;border-radius:9px;padding:.5rem;font-weight:700;font-size:.82rem"><i class="fa-solid fa-pen" style="margin-right:.3rem"></i>Log</button>
+      </div>
     </div>`;
   }).join('');
+}
+
+// Mark a follow-up done (source-aware); logs a completed activity for prospect actions.
+async function fuDone(i){
+  const f = followups[i]; if(!f || !f._rec) return;
+  if(!navigator.onLine){ showToast('You’re offline — reconnect to update.'); return; }
+  const rec = f._rec, nowIso = new Date().toISOString();
+  try {
+    if(f.kind==='activity'){
+      rec.done=true; rec.doneBy=displayName; rec.doneDate=today();
+      const { error } = await sb.from('smtgs').upsert({ id:rec.id, data:rec }); if(error) throw error;
+    } else if(f.kind==='prospect'){
+      const tid = Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+      const act = { id:tid, category:'Activity', type:rec.nextAction||'Follow-up call', prospectId:rec.id, leadId:'',
+        company:rec.company||'', person:rec.name||'', by:[displayName], status:'Completed',
+        done:true, doneBy:displayName, doneDate:today(), date:today(), created:nowIso, deleted:false };
+      let r1 = await sb.from('smtgs').insert({ id:tid, data:act }); if(r1.error) throw r1.error;
+      rec.nextAction=''; rec.nextActionDate=''; rec.nextActionNote=''; rec.updated=nowIso;
+      let r2 = await sb.from('prospects').upsert({ id:rec.id, data:rec, updated_at:nowIso }); if(r2.error) throw r2.error;
+    } else if(f.kind==='lead'){
+      rec.nextAction=''; rec.nextActionDate=''; rec.updated=nowIso;
+      const { error } = await sb.from('leads').upsert({ id:rec.id, data:rec, updated_at:nowIso }); if(error) throw error;
+    }
+    showToast('Done ✓');
+    await loadFollowups(); renderFollowups();
+  } catch(e){ showToast('Could not update: '+((e&&e.message)||e)); }
+}
+
+// Open the Log form pre-linked to this follow-up's contact.
+function fuLog(i){
+  const f = followups[i]; if(!f || !f._rec) return;
+  logMode = 'activity';
+  showView('log');   // resets the form first
+  selectedLead = { id:f._rec.id, company:f.company, contact:f.contact, _prospect:(f.kind!=='lead') };
+  const lbl=ge('picker-lbl'); if(lbl) lbl.textContent = f.company||'—';
+  const pb=ge('picker-btn'); if(pb) pb.classList.add('chosen');
+  const lc=ge('log-company'); if(lc) lc.style.display='none';
 }
 
 // ── SAVE PROSPECT ──────────────────────────────────────────────────────────
