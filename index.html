@@ -957,8 +957,14 @@
           <div class="col-md-6"><label class="form-label">Task type</label>
             <select class="form-select" id="na-type">
               <option value="">— None —</option>
-              <option>Follow-up call</option><option>Email sent</option><option>WhatsApp sent</option>
-              <option>Price submitted</option><option>Brochures / Information sent</option>
+              <option>Follow up call</option>
+              <option>Friendly Check-in</option>
+              <option>Send brochure</option>
+              <option>Email more info</option>
+              <option>Setup coffee / meeting</option>
+              <option>Quote</option>
+              <option>Demo Day</option>
+              <option>Other</option>
             </select></div>
           <div class="col-md-6"><label class="form-label">Due date</label>
             <input type="date" class="form-control" id="na-date"></div>
@@ -2276,7 +2282,7 @@ function openNextAct(prospectId, prefill, existingId){
   sv('na-prospectId', (ex&&ex.prospectId) || prospectId || '');
   sv('na-company', (ex&&ex.company) || (p&&p.company) || (prefill&&prefill.company) || '');
   sv('na-person',  (ex&&ex.person)  || (p&&p.name)    || (prefill&&prefill.person)  || '');
-  sv('na-type', ex? (ex.type||'Follow-up call') : 'Follow-up call');
+  sv('na-type', ex? (ex.type||'Follow up call') : 'Follow up call');
   sv('na-date', ex? (ex.nextDate||'') : '');
   sv('na-assigned', ex? (ex.assignedTo||'') : (curUser||''));
   sv('na-note', ex? (ex.followupNote||'') : '');
@@ -2455,8 +2461,9 @@ function renderFollowupsDue(){
       assignedTo:p.assigned||'', followupNote:p.nextActionNote||'', nextAction:p.nextAction||'',
       nextDate:p.nextActionDate||'', date:'', type:p.nextAction||'', category:'Activity', done:false, deleted:false });
   });
-  // "Due only": overdue, due today, or undated. Future-dated items surface automatically when their date arrives.
-  rows=rows.filter(m=>{ const d=dueOf(m); return !d || d<=t; });
+  // Window: overdue, due today, undated, OR coming up within the next 7 days. Anything further out surfaces as its date approaches.
+  const horizon=(()=>{ const d=new Date(t+'T00:00:00Z'); d.setUTCDate(d.getUTCDate()+7); return d.toISOString().slice(0,10); })();
+  // Show ALL open follow-ups; the date colour signals urgency (red = overdue · amber = within 7 days · green = further out).
   if(fa) rows=rows.filter(m=>(m.assignedTo||'')===fa);
   if(q) rows=rows.filter(m=>[m.company,m.person,labelOf(m),m.followupNote,m.assignedTo].join(' ').toLowerCase().includes(q));
   rows.sort((a,b)=>(dueOf(a)||'9999-99-99').localeCompare(dueOf(b)||'9999-99-99'));
@@ -2465,9 +2472,12 @@ function renderFollowupsDue(){
   const tb=ge('fu-tbody'); if(!tb) return;
   tb.innerHTML = rows.length ? rows.map(m=>{
     const due=dueOf(m);
-    const od=due && due<t;
+    let dcol='#94a3b8', dic='', dfw='400';
+    if(due && due<t){ dcol='#c62828'; dic='<i class="fa fa-exclamation-circle me-1"></i>'; dfw='700'; }          // overdue — red
+    else if(due && due<=horizon){ dcol='#c77800'; dic='<i class="fa fa-clock me-1"></i>'; dfw='600'; }           // within 7 days — amber
+    else if(due){ dcol='#2e7d32'; dic='<i class="fa fa-calendar-check me-1"></i>'; }                             // further out — green
     return `<tr style="font-size:.81rem;${m.prospectId?'cursor:pointer':''}" ${m.prospectId?`onclick="curProspect='${m.prospectId}';showView('prospect-detail')"`:''}>
-      <td style="white-space:nowrap;color:${od?'#c62828':'#555'};font-weight:${od?'700':'400'}">${od?'<i class="fa fa-exclamation-circle me-1"></i>':''}${due||'—'}</td>
+      <td style="white-space:nowrap;color:${dcol};font-weight:${dfw}">${dic}${due||'—'}</td>
       <td style="font-weight:600">${esc(m.company||'—')}</td>
       <td style="font-size:.79rem">${esc(m.person||'—')}</td>
       <td style="font-size:.79rem;color:#e65100">${(catOf(m)==='Activity'&&m.done===false)?`<span onclick="event.stopPropagation();openNextAct('${m.prospectId||''}',null,'${m.id}')" style="cursor:pointer;text-decoration:underline dotted" title="View / edit this to-do">${esc(labelOf(m))}</span>`:`<span onclick="event.stopPropagation();openSMtgModal('${m.id}')" style="cursor:pointer;text-decoration:underline dotted" title="View the record">${esc(labelOf(m))}</span>`}</td>

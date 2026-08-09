@@ -990,29 +990,50 @@ async function saveActivity(){
 // ── FOLLOW-UPS ─────────────────────────────────────────────────────────────
 async function loadFollowups(){
   if(!session || !displayName) return;
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() + 14);
-  const cut = cutoff.toISOString().slice(0, 10);
-
+  const me = displayName;
   try {
-    const { data } = await sb
-      .from('leads')
-      .select('id,company,contact,next_action,next_action_date,status')
-      .eq('assigned', displayName)
-      .not('next_action_date', 'is', null)
-      .lte('next_action_date', cut)
-      .not('status', 'in', '("Won","Dead / Lost")')
-      .order('next_action_date', { ascending: true });
-    followups = data || [];
+    const [ld, pd, sd] = await Promise.all([
+      sb.from('leads').select('id,data'),
+      sb.from('prospects').select('id,data'),
+      sb.from('smtgs').select('id,data')
+    ]);
+    const leads     = (ld.data||[]).map(r=>r.data).filter(x=>x && !x.deleted);
+    const prospects = (pd.data||[]).map(r=>r.data).filter(x=>x && !x.deleted);
+    const smtgs     = (sd.data||[]).map(r=>r.data).filter(x=>x && !x.deleted);
+    const dueOf   = m => m.nextAction ? (m.nextDate||'') : (m.nextDate||m.date||'');
+    const labelOf = m => m.nextAction ? m.nextAction : (m.type||'');
+    const items = [];
+    // 1) Open to-dos / activities assigned to me
+    smtgs.forEach(m=>{
+      if(m.done===true) return;
+      if(!((m.category==='Activity') || m.nextAction)) return;
+      if((m.assignedTo||'')!==me) return;
+      items.push({ company:m.company||'', contact:m.person||'', action:labelOf(m), due:dueOf(m), kind:'activity' });
+    });
+    // 2) Prospect next-actions still on the prospect record (no separate to-do yet), assigned to me
+    const withTodo = new Set(smtgs.map(m=>m.prospectId).filter(Boolean));
+    prospects.forEach(p=>{
+      if(!p.nextAction) return;
+      if((p.assigned||'')!==me) return;
+      if(withTodo.has(p.id)) return;
+      items.push({ company:p.company||'', contact:p.name||'', action:p.nextAction, due:p.nextActionDate||'', kind:'prospect' });
+    });
+    // 3) Lead next-actions assigned to me (kept under Leads on desktop; surfaced here as personal tasks)
+    leads.forEach(l=>{
+      if(!l.nextAction || !l.nextActionDate) return;
+      if((l.assigned||'')!==me) return;
+      if(l.status==='Won' || l.status==='Dead / Lost') return;
+      items.push({ company:l.company||l.title||l.client||'', contact:l.contact||'', action:l.nextAction, due:l.nextActionDate, kind:'lead' });
+    });
+    items.sort((a,b)=>(a.due||'9999-99-99').localeCompare(b.due||'9999-99-99'));
+    followups = items;
   } catch(e){ followups = []; }
 
-  const overdue = followups.filter(f => f.next_action_date < today()).length;
-  const dot   = ge('nav-dot');
-  const badge = ge('home-fu-badge');
-  const obanner = ge('overdue-alert');
+  const overdue = followups.filter(f => f.due && f.due < today()).length;
+  const dot=ge('nav-dot'), badge=ge('home-fu-badge'), obanner=ge('overdue-alert');
   if(overdue > 0){
-    dot.textContent = overdue; dot.style.display = '';
-    badge.textContent = overdue + ' overdue'; badge.style.display = '';
+    if(dot){ dot.textContent = overdue; dot.style.display = ''; }
+    if(badge){ badge.textContent = overdue + ' overdue'; badge.style.display = ''; }
     if(obanner && !sessionStorage.getItem('bv_m_od_dismissed')){
       ge('overdue-alert-txt').textContent = overdue === 1
         ? '1 overdue follow-up needs attention'
@@ -1020,8 +1041,8 @@ async function loadFollowups(){
       obanner.style.display = 'flex';
     }
   } else {
-    dot.style.display = 'none';
-    badge.style.display = 'none';
+    if(dot) dot.style.display = 'none';
+    if(badge) badge.style.display = 'none';
     if(obanner) obanner.style.display = 'none';
   }
 }
@@ -1029,20 +1050,24 @@ async function loadFollowups(){
 function renderFollowups(){
   const body = ge('fu-body');
   if(!followups.length){
-    body.innerHTML = '<div class="empty"><i class="fa-solid fa-circle-check" style="color:var(--green);opacity:1"></i><p>No follow-ups due in the next 14 days.</p></div>';
+    body.innerHTML = '<div class="empty"><i class="fa-solid fa-circle-check" style="color:var(--green);opacity:1"></i><p>You\'re all caught up — no follow-ups.</p></div>';
     return;
   }
   const t = today();
+  const horizon=(()=>{ const d=new Date(t+'T00:00:00Z'); d.setUTCDate(d.getUTCDate()+7); return d.toISOString().slice(0,10); })();
+  const kindLbl = {activity:'Activity', prospect:'Prospect', lead:'Lead'};
   body.innerHTML = followups.map(f => {
-    const isOverdue = f.next_action_date < t;
-    const isToday   = f.next_action_date === t;
-    const cls   = isOverdue ? 'fu-overdue' : (isToday ? 'fu-today' : 'fu-soon');
-    const label = isOverdue ? `Overdue · ${f.next_action_date}` : (isToday ? 'Today' : f.next_action_date);
+    let bg,fg,lbl;
+    if(f.due && f.due<t){ bg='var(--red-lt)'; fg='var(--red)'; lbl='Overdue · '+f.due; }
+    else if(f.due && f.due<=horizon){ bg='#fff4e0'; fg='#c77800'; lbl=(f.due===t?'Today':f.due); }
+    else if(f.due){ bg='#e7f5e9'; fg='#2e7d32'; lbl=f.due; }
+    else { bg='#eef1f5'; fg='#7a8699'; lbl='No date'; }
     return `<div class="fu-card">
-      <span class="fu-chip ${cls}">${label}</span>
-      <div style="font-weight:700;font-size:.95rem">${esc(f.company||'')}</div>
+      <span class="fu-chip" style="background:${bg};color:${fg}">${lbl}</span>
+      <div style="font-weight:700;font-size:.95rem">${esc(f.company||'—')}</div>
       ${f.contact ? `<div style="font-size:.8rem;color:var(--muted)">${esc(f.contact)}</div>` : ''}
-      ${f.next_action ? `<div style="font-size:.87rem;margin-top:.4rem;color:#444"><i class="fa-solid fa-arrow-right" style="color:var(--blue);margin-right:.3rem"></i>${esc(f.next_action)}</div>` : ''}
+      ${f.action ? `<div style="font-size:.87rem;margin-top:.4rem;color:#444"><i class="fa-solid fa-arrow-right" style="color:var(--blue);margin-right:.3rem"></i>${esc(f.action)}</div>` : ''}
+      <div style="font-size:.66rem;color:#9aa4b2;margin-top:.35rem;text-transform:uppercase;letter-spacing:.3px">${kindLbl[f.kind]||''}</div>
     </div>`;
   }).join('');
 }
