@@ -599,14 +599,14 @@ async function syncQueue(){
     let ok = false;
     try {
       if(item._type === 'activity'){
-        const { error } = await sb.from('smtgs').insert(item._data);
-        ok = !error;
+        const { error } = await sb.from('smtgs').upsert(item._data);
+        ok = !error; if(error) item._err = error.message;
       } else if(item._type === 'prospect'){
-        const { error } = await sb.from('prospects').insert(item._data);
-        ok = !error;
-      }
-    } catch(e){ ok = false; }
-    if(!ok) failed.push(item);
+        const { error } = await sb.from('prospects').upsert(item._data);
+        ok = !error; if(error) item._err = error.message;
+      } else { ok = true; } // unknown/legacy type — can't be synced; drop so it can't block the queue forever
+    } catch(e){ ok = false; item._err = (e && e.message) || String(e); }
+    if(!ok){ item._attempts = (item._attempts||0) + 1; failed.push(item); }
   }
   setQueue(failed);
   refreshSyncBadge();
