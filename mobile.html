@@ -529,7 +529,7 @@ let displayName = '';
 let allLeads = [];          // [{id,company,contact,status,_prospect}]
 let filteredLeads = [];
 // Team list for follow-up assignment (mirrors the desktop CRM fallback list).
-const TEAM_FALLBACK = ['Brendan Ferns','Charles Botha','Christine Mayienda','Elmarie Barnard','Jaco Venter','Johan Lindeque','Lanc Pieterse','Marlene McLachlan','Micke Schulz','Nicole Nieuwoudt','Ruhan Oosthuizen','SA Sales'];
+const TEAM_FALLBACK = ['Brendan Ferns','Charles Botha','Christine Mayienda','Elmarie Barnard','Jaco Venter','Johan Lindeque','Lanc Pieterse','Marlene McLachlan','Micke Schulz','Ruhan Oosthuizen','SA Sales'];
 let TEAM = [...TEAM_FALLBACK];
 function populateAssignSelect(){
   const el = ge('log-assigned'); if(!el) return;
