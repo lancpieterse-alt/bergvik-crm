@@ -272,7 +272,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
         <i class="fa-solid fa-triangle-exclamation" style="color:var(--red);font-size:1.2rem;flex-shrink:0"></i>
         <div style="flex:1">
           <div style="font-weight:700;font-size:.88rem;color:var(--red)">Unsynced items</div>
-          <div id="pending-detail" style="font-size:.78rem;color:#555"></div>
+          <div id="pending-detail" style="font-size:.78rem;color:#555" onclick="showSyncErrors()"></div>
         </div>
         <button class="btn btn-sm btn-primary" style="background:var(--red);flex-shrink:0" onclick="syncQueue()">Retry</button>
       </div>
@@ -529,7 +529,7 @@ let displayName = '';
 let allLeads = [];          // [{id,company,contact,status,_prospect}]
 let filteredLeads = [];
 // Team list for follow-up assignment (mirrors the desktop CRM fallback list).
-const TEAM_FALLBACK = ['Brendan Ferns','Charles Botha','Christine Mayienda','Elmarie Barnard','Jaco Venter','Johan Lindeque','Lanc Pieterse','Marlene McLachlan','Nicole Nieuwoudt','Ruhan Oosthuizen','SA Sales'];
+const TEAM_FALLBACK = ['Brendan Ferns','Charles Botha','Christine Mayienda','Elmarie Barnard','Jaco Venter','Johan Lindeque','Lanc Pieterse','Marlene McLachlan','Micke Schulz','Nicole Nieuwoudt','Ruhan Oosthuizen','SA Sales'];
 let TEAM = [...TEAM_FALLBACK];
 function populateAssignSelect(){
   const el = ge('log-assigned'); if(!el) return;
@@ -583,11 +583,32 @@ function refreshSyncBadge(){
     badge.className = 'show';
     ge('sync-n').textContent = q.length;
     banner.classList.add('show');
-    ge('pending-detail').textContent = `${q.length} item${q.length > 1 ? 's' : ''} waiting to sync`;
+    const errItem = q.find(it => it._err);
+    if(errItem){
+      // Surface the real reason a write is stuck instead of a generic "waiting" message —
+      // an errored item won't clear on retry, so the user (and we) need to see why.
+      ge('pending-detail').innerHTML = `${q.length} item${q.length > 1 ? 's' : ''} stuck — <u>tap for error</u>`;
+    } else {
+      ge('pending-detail').textContent = `${q.length} item${q.length > 1 ? 's' : ''} waiting to sync`;
+    }
   } else {
     badge.className = '';
     banner.classList.remove('show');
   }
+}
+
+// Show exactly why each stuck item failed to sync (the captured Supabase/network error),
+// so a stuck queue becomes a screenshot instead of a guessing session.
+function showSyncErrors(){
+  const q = getQueue();
+  if(!q.length) return;
+  const lines = q.map((it, i) => {
+    const kind = it._type === 'activity' ? 'Meeting' : it._type === 'prospect' ? 'Prospect' : (it._type || 'Item');
+    const tries = it._attempts ? ` (tried ${it._attempts}×)` : '';
+    const err = it._err ? it._err : 'not yet attempted';
+    return `${i + 1}. ${kind}${tries}\n   ${err}`;
+  });
+  alert('Unsynced items — reason:\n\n' + lines.join('\n\n'));
 }
 
 async function syncQueue(){
@@ -795,8 +816,19 @@ async function loadScorecard(){
 // ── BOOT ───────────────────────────────────────────────────────────────────
 (async () => {
   const { data } = await sb.auth.getSession();
-  if(data?.session){ session = data.session; afterLogin(); }
-  else { ge('screen-login').classList.add('show'); }
+  let valid = false;
+  if(data?.session){
+    session = data.session; valid = true;
+    // A cached session can have a dead token (writes then get rejected and sit "unsynced").
+    // Validate against the server when online; if the token can't be refreshed, force a fresh login.
+    // When offline, trust the cached session so field use / queueing still works.
+    if(navigator.onLine){
+      try { const { data:u, error } = await sb.auth.getUser(); if(error || !u || !u.user) valid = false; }
+      catch(e){ /* network hiccup — keep cached session; writes will queue */ }
+    }
+  }
+  if(valid){ afterLogin(); }
+  else { session = null; ge('screen-login').classList.add('show'); ge('app').style.display='none'; ge('screen-setup').classList.remove('show'); }
   sb.auth.onAuthStateChange((_, sess) => { session = sess; });
 })();
 
