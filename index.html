@@ -3629,7 +3629,7 @@ async function renderGoals(){
   const pct = doy(new Date()) / doy(new Date(yr,11,31));
 
   const allMtgs   = [...meetings, ...smtgs];
-  const ytdMtgs   = allMtgs.filter(m=>(m.date||'').startsWith(String(yr))).length;
+  const ytdMtgs   = allMtgs.filter(m=>catOf(m)==='Meeting' && (m.date||'').startsWith(String(yr))).length;
   const ytdDemos  = allMtgs.filter(m=>m.type==='Demo Day'  && (m.date||'').startsWith(String(yr))).length;
   const ytdShows  = allMtgs.filter(m=>m.type==='Trade Show'&& (m.date||'').startsWith(String(yr))).length;
 
@@ -3669,7 +3669,7 @@ async function renderGoals(){
   // Proposals Sent, Projects Won, Value Won (Bookings) come from the quote system.
   // Meetings, Demo Days, Trade Shows come from CRM local data (unchanged).
   const metrics = [
-    {label:'Meetings & Activities',   icon:'fa-handshake',  color:'#1F4E79', actual:ytdMtgs,       tgt:getTarget('meetings')},
+    {label:'Meetings'              ,   icon:'fa-handshake',  color:'#1F4E79', actual:ytdMtgs,       tgt:getTarget('meetings')},
     {label:'Proposals Sent',          icon:'fa-file-alt',   color:'#2e7d32', actual:qProposalsSent, tgt:getTarget('quotes_issued'),  quoteData:true},
     {label:'Demo Days',               icon:'fa-desktop',    color:'#6a1b9a', actual:ytdDemos,       tgt:getTarget('demo_days')},
     {label:'Trade Shows',             icon:'fa-store',      color:'#00695c', actual:ytdShows,       tgt:getTarget('trade_shows')},
