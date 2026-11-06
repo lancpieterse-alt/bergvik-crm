@@ -207,6 +207,8 @@
     <div class="nav-lnk" id="nl-l2b" onclick="showView('l2b')"><i class="fa fa-satellite-dish"></i>L2B Inbox</div>
     <div class="nav-lnk" id="nl-digest" onclick="showView('digest')"><i class="fa fa-chart-line"></i>Weekly Digest</div>
     <div class="nav-lnk" id="nl-goals" onclick="showView('goals')"><i class="fa fa-bullseye"></i>Goals</div>
+    <div class="nav-lnk" id="nl-admin"       onclick="showView('admin')"       style="display:none"><i class="fa fa-user-shield"></i>Admin</div>
+    <div class="nav-lnk" id="nl-admin"       onclick="showView('admin')"       style="display:none"><i class="fa fa-user-shield"></i>Admin</div>
     <div class="nav-lnk" id="nl-mgmt"        onclick="showView('mgmt')"        style="display:none"><i class="fa fa-chart-bar"></i>Management</div>
     <div class="nav-lnk" id="nl-rep-targets" onclick="showView('rep-targets')" style="display:none"><i class="fa fa-sliders"></i>Rep Targets</div>
     <div class="nav-lnk" id="nl-audit"       onclick="showView('audit')"       style="display:none"><i class="fa fa-shield-alt"></i>Audit Log</div>
@@ -623,6 +625,16 @@
     <div class="view" id="view-mgmt">
       <div id="mgmt-fm-tools" style="margin-bottom:1rem"></div>
       <div id="mgmt-content"><div class="es"><i class="fa fa-spinner fa-spin"></i>Loading…</div></div>
+    </div>
+
+    <!-- ADMIN VIEW (admin-only) -->
+    <div class="view" id="view-admin">
+      <div id="admin-content"><div class="es"><i class="fa fa-spinner fa-spin"></i>Loading…</div></div>
+    </div>
+
+    <!-- ADMIN VIEW (admin-only) -->
+    <div class="view" id="view-admin">
+      <div id="admin-content"><div class="es"><i class="fa fa-spinner fa-spin"></i>Loading…</div></div>
     </div>
 
     <!-- AUDIT LOG VIEW (admin-only) -->
@@ -1285,8 +1297,8 @@ async function fetchQuoteMetrics(yr){
   }catch(e){}
   return null;
 }
-// Admin operations handled server-side via crm-admin Edge Function
-const ADMINS  = ['lanc.pieterse@bergvik.com'];
+// Admin set — populated from team.is_admin at login (replaces hardcoded array)
+let _adminEmails = new Set();
 
 // ── CONFIG ────────────────────────────────────────────────────────────────
 const TEAM_FALLBACK = ['Brendan Ferns','Charles Botha','Christine Mayienda','Elmarie Barnard','Jaco Venter','Johan Lindeque','Lanc Pieterse','Marlene McLachlan','Micke Schulz','Ruhan Oosthuizen','SA Sales'];
@@ -1499,8 +1511,8 @@ function setUserFromSession(s){
   const name = s?.user?.user_metadata?.name || s?.user?.email?.split('@')[0] || 'User';
   curUser = name;
   if(ge('u-label')) ge('u-label').textContent = name;
-  const isAdmin = ADMINS.includes(s?.user?.email||'');
-  if(ge('nl-admin')) ge('nl-admin').style.display = isAdmin ? 'flex' : 'none';
+  const isAdmin = _adminEmails.has(s?.user?.email||'');
+  if(ge('nl-admin'))       ge('nl-admin').style.display       = isAdmin ? 'flex' : 'none';
   if(ge('nl-mgmt'))        ge('nl-mgmt').style.display        = isAdmin ? 'flex' : 'none';
   if(ge('nl-rep-targets')) ge('nl-rep-targets').style.display = isAdmin ? 'flex' : 'none';
   if(ge('nl-audit'))       ge('nl-audit').style.display       = isAdmin ? 'flex' : 'none';
@@ -1532,7 +1544,7 @@ async function doLogout(){
 
 // ── NAVIGATION ────────────────────────────────────────────────────────────
 let curView='dashboard', curLead=null;
-const TITLES = {dashboard:'Dashboard',leads:'Leads',smtg:'Meetings',activities:'Activities',followups:'Follow-ups Due',pipeline:'Pipeline',meetings:'All Activity','lead-detail':'Lead Detail',l2b:'L2B Inbox',digest:'Weekly Digest',goals:'Goals',prospects:'Prospects','prospect-detail':'Prospect Detail',mgmt:'Management','rep-targets':'Rep Targets'};
+const TITLES = {dashboard:'Dashboard',leads:'Leads',smtg:'Meetings',activities:'Activities',followups:'Follow-ups Due',pipeline:'Pipeline',meetings:'All Activity','lead-detail':'Lead Detail',l2b:'L2B Inbox',digest:'Weekly Digest',goals:'Goals',prospects:'Prospects','prospect-detail':'Prospect Detail',mgmt:'Management','rep-targets':'Rep Targets',admin:'Admin',audit:'Audit Log'};
 
 function showView(v){
   window.scrollTo(0,0);
@@ -1556,6 +1568,7 @@ function showView(v){
   if(v==='goals')           renderGoals();
   if(v==='prospects')       renderProspects();
   if(v==='prospect-detail') renderProspectDetail(curProspect);
+  if(v==='admin')        renderAdmin();
   if(v==='mgmt')         { renderFMTools(); renderMgmt(); }
   if(v==='audit')        renderAuditView();
   if(v==='rep-targets')  renderRepTargets();
@@ -3230,7 +3243,7 @@ function backupData(){
 
 function restoreData(input){
   // ── Admin-only guard ─────────────────────────────────────────────────
-  if(!ADMINS.includes(sbSession?.user?.email)){
+  if(!_adminEmails.has(sbSession?.user?.email||'')){
     alert('Restore is restricted to admins.'); input.value=''; return;
   }
   const file = input.files[0]; if(!file) return;
@@ -3454,7 +3467,7 @@ function renderDigest(){
 let _assignL2BId = null;
 
 function renderL2B(){
-  const isAdmin = ADMINS.includes(sbSession?.user?.email||'');
+  const isAdmin = _adminEmails.has(sbSession?.user?.email||'');
   const l2bAll  = leads.filter(l=>l.source==='L2B Weekly Report')
     .sort((a,b)=>(a.closing||'zzz').localeCompare(b.closing||'zzz'));
   const dismissed  = l2bAll.filter(l=>l.dismissed===true);
@@ -3917,6 +3930,60 @@ async function saveRepTargets(yr){
 }
 
 // ── MANAGEMENT VIEW ──────────────────────────────────────────────────────
+// ── ADMIN VIEW ───────────────────────────────────────────────────────────────────────────
+async function renderAdmin(){
+  const el = ge('admin-content');
+  if(!el) return;
+  if(!_adminEmails.has(sbSession?.user?.email||'')){
+    el.innerHTML='<div class="es"><i class="fa fa-lock me-2" style="color:#c62828"></i>Access restricted to administrators.</div>';
+    return;
+  }
+  el.innerHTML='<div class="es"><i class="fa fa-spinner fa-spin me-2"></i>Loading…</div>';
+  const { data: rows, error } = await sb.from('team').select('id,name,email,active,is_admin').order('name');
+  if(error || !rows){
+    el.innerHTML='<div class="es"><i class="fa fa-exclamation-circle me-2" style="color:#c62828"></i>Failed to load team data.</div>';
+    return;
+  }
+  const badge=(on,lo,lf,c)=>`<span style="display:inline-block;padding:.18rem .6rem;border-radius:999px;font-size:.72rem;font-weight:700;background:${on?c+'22':'#f5f5f5'};color:${on?c:'#999'};border:1px solid ${on?c+'55':'#ddd'}">${on?lo:lf}</span>`;
+  const rows_html=rows.map(r=>{
+    const isSelf=(r.email||'')===(sbSession?.user?.email||'');
+    return `<tr><td style="font-weight:600;font-size:.85rem">${esc(r.name)}</td><td style="font-size:.8rem;color:#555">${esc(r.email||'—')}</td><td style="text-align:center">${badge(r.active,'Active','Inactive','#2e7d32')}</td><td style="text-align:center">${badge(r.is_admin,'Admin','Rep','#1F4E79')}</td><td style="text-align:right"><button class="btn btn-sm" style="font-size:.74rem;padding:.2rem .6rem;background:#f5f7fa;border:1px solid #ddd;color:#333" onclick="openAdminMemberEdit('${r.id}','${esc(r.name)}',${r.active},${r.is_admin},${isSelf})"><i class="fa fa-pencil-alt me-1"></i>Edit</button></td></tr>`;
+  }).join('');
+  el.innerHTML=`<div class="sc mb-3"><div class="sc-hdr" style="display:flex;justify-content:space-between;align-items:center"><h6 style="margin:0"><i class="fa fa-users me-2" style="color:#1F4E79"></i>Team Members</h6><span style="font-size:.76rem;color:#888">${rows.length} member${rows.length!==1?'s':''}</span></div><div style="overflow-x:auto"><table class="ct" style="min-width:560px"><thead><tr><th>Name</th><th>Email</th><th style="text-align:center">Status</th><th style="text-align:center">Role</th><th style="width:70px"></th></tr></thead><tbody>${rows_html}</tbody></table></div></div>
+<div class="modal" id="mAdminMember" tabindex="-1"><div class="modal-dialog modal-dialog-centered" style="max-width:380px"><div class="modal-content"><div class="modal-header" style="background:#1F4E79;color:#fff;padding:.75rem 1rem"><h6 class="modal-title"><i class="fa fa-user-cog me-2"></i>Edit Team Member</h6><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div><div class="modal-body" style="padding:1.2rem"><input type="hidden" id="adm-mid"><div id="adm-mname" style="font-weight:700;font-size:.95rem;margin-bottom:1rem;color:#1F4E79"></div><div class="mb-3"><label class="form-label" style="font-weight:700;font-size:.82rem">Account Status</label><div style="display:flex;gap:.5rem"><button id="adm-btn-active" class="btn btn-sm" style="flex:1" onclick="admSetActive(true)"><i class="fa fa-check-circle me-1"></i>Active</button><button id="adm-btn-inactive" class="btn btn-sm" style="flex:1" onclick="admSetActive(false)"><i class="fa fa-ban me-1"></i>Inactive</button></div></div><div class="mb-3" id="adm-role-row"><label class="form-label" style="font-weight:700;font-size:.82rem">Role</label><div style="display:flex;gap:.5rem"><button id="adm-btn-admin" class="btn btn-sm" style="flex:1" onclick="admSetAdmin(true)"><i class="fa fa-user-shield me-1"></i>Admin</button><button id="adm-btn-rep" class="btn btn-sm" style="flex:1" onclick="admSetAdmin(false)"><i class="fa fa-user me-1"></i>Rep</button></div></div><div id="adm-merr" style="display:none;color:#c62828;font-size:.78rem;margin-top:.5rem"></div></div><div class="modal-footer" style="padding:.65rem 1rem"><button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" id="adm-msave" class="btn btn-sm" style="background:#1F4E79;color:#fff" onclick="saveAdminMember()"><i class="fa fa-save me-1"></i>Save Changes</button></div></div></div></div>`;
+}
+let _admEdit={};
+function openAdminMemberEdit(id,name,active,isAdmin,isSelf){
+  _admEdit={id,active,is_admin:isAdmin};
+  ge('adm-mid').value=id; ge('adm-mname').textContent=name; ge('adm-merr').style.display='none';
+  if(ge('adm-role-row')) ge('adm-role-row').style.display=isSelf?'none':'';
+  _admRefreshButtons();
+  new bootstrap.Modal(ge('mAdminMember')).show();
+}
+function admSetActive(val){_admEdit.active=val;_admRefreshButtons();}
+function admSetAdmin(val){_admEdit.is_admin=val;_admRefreshButtons();}
+function _admRefreshButtons(){
+  const sel='background:#1F4E79;color:#fff;border-color:#1F4E79;flex:1',uns='background:#f5f7fa;color:#555;border-color:#ddd;flex:1',
+        gs='background:#2e7d32;color:#fff;border-color:#2e7d32;flex:1',gr='background:#f5f7fa;color:#555;border-color:#ddd;flex:1';
+  ge('adm-btn-active').style.cssText=_admEdit.active?gs:gr;
+  ge('adm-btn-inactive').style.cssText=!_admEdit.active?'background:#c62828;color:#fff;border-color:#c62828;flex:1':gr;
+  ge('adm-btn-admin').style.cssText=_admEdit.is_admin?sel:uns;
+  ge('adm-btn-rep').style.cssText=!_admEdit.is_admin?sel:uns;
+}
+async function saveAdminMember(){
+  const btn=ge('adm-msave'),errEl=ge('adm-merr');
+  errEl.style.display='none'; btn.disabled=true; btn.innerHTML='<i class="fa fa-spinner fa-spin me-1"></i>Saving…';
+  const {data,error}=await sb.rpc('admin_update_team_member',{p_id:_admEdit.id,p_active:_admEdit.active,p_is_admin:_admEdit.is_admin});
+  btn.disabled=false; btn.innerHTML='<i class="fa fa-save me-1"></i>Save Changes';
+  if(error||(data&&data.error)){errEl.textContent=error?.message||data?.error||'Save failed';errEl.style.display='block';return;}
+  bootstrap.Modal.getInstance(ge('mAdminMember'))?.hide();
+  renderAdmin();
+  try{
+    const{data:td}=await sb.from('team').select('name,email,active,is_admin').order('name');
+    if(td){TEAM=td.filter(r=>r.active!==false).map(r=>r.name);_adminEmails=new Set(td.filter(r=>r.is_admin).map(r=>r.email).filter(Boolean));setUserFromSession(sbSession);}
+  }catch(_e){}
+}
+
 async function renderMgmt(){
   ge('mgmt-content').innerHTML = '<div class="es"><i class="fa fa-spinner fa-spin me-2"></i>Loading…</div>';
   const { data, error } = await sb.rpc('get_management_data');
@@ -4254,13 +4321,15 @@ sb.auth.onAuthStateChange(async (event, session) => {
   }
   if (session) {
     ge('recovery-overlay').style.display = 'none';
-    setUserFromSession(session);
+    // Load team (with admin flags) before setUserFromSession so nav shows correctly
     try {
-      const { data: teamData } = await sb.from('team').select('name').eq('active', true).order('name');
+      const { data: teamData } = await sb.from('team').select('name,email,active,is_admin').order('name');
       if (teamData && teamData.length) {
-        TEAM = teamData.map(r => r.name);
+        TEAM = teamData.filter(r => r.active !== false).map(r => r.name);
+        _adminEmails = new Set(teamData.filter(r => r.is_admin).map(r => r.email).filter(Boolean));
       } else { TEAM = [...TEAM_FALLBACK]; }
     } catch(_e) { TEAM = [...TEAM_FALLBACK]; }
+    setUserFromSession(session);
     await loadAll();
     if(typeof renderFollowupsDue==='function') renderFollowupsDue(); // refresh overdue nav badge
     if(ge('login-overlay')) ge('login-overlay').style.display = 'none';
