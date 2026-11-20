@@ -101,6 +101,8 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 .pills{display:flex;flex-wrap:wrap;gap:.45rem}
 .pill{padding:.52rem .85rem;border-radius:30px;border:1.5px solid var(--border);background:#fff;font-size:.88rem;font-weight:600;cursor:pointer;color:var(--txt);font-family:inherit;transition:all .12s}
 .pill.on{background:var(--blue);border-color:var(--blue);color:#fff}
+.m-mtg-hint{font-size:.8rem;color:var(--muted);margin-top:.45rem;line-height:1.4}
+.m-mtg-rule{font-size:.8rem;color:#5d4037;background:#fff8e1;border-radius:10px;padding:.55rem .75rem;margin:-.3rem 0 1.1rem;line-height:1.4}
 
 /* ── Lead picker button ── */
 .picker-btn{width:100%;padding:.85rem 1rem;border:1.5px solid var(--border);border-radius:10px;background:#fff;text-align:left;font-size:1rem;color:var(--muted);cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-family:inherit}
@@ -300,7 +302,22 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
       <div class="field">
         <label class="lbl" id="log-type-lbl">Meeting type</label>
         <div class="pills" id="type-pills"></div>
+        <div id="log-type-hint" class="m-mtg-hint"></div>
       </div>
+
+      <div class="field" id="log-held-field">
+        <label class="lbl">Did the meeting take place?</label>
+        <select id="log-held" onchange="mLogHeldChanged()">
+          <option value="Completed">Yes, it took place</option>
+          <option value="Did not happen">No: cancelled / no-show / moved</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label class="lbl">Client contact (who you met / spoke to)</label>
+        <input type="text" id="log-person" placeholder="e.g. John Smith">
+      </div>
+      <div id="log-rule" class="m-mtg-rule">A meeting needs the client contact’s name, what was discussed and the outcome or agreed next step. Phone calls and trade shows are logged as activities.</div>
 
       <div class="field">
         <label class="lbl">Date</label>
@@ -898,6 +915,7 @@ function pickLead(i){
   btn.classList.add('chosen');
   ge('log-company').style.display = 'none';
   ge('log-company').value = '';
+  const lp=ge('log-person'); if(lp && !lp.value.trim()) lp.value = l.contact||'';
   closeLeadModal();
 }
 
@@ -917,14 +935,56 @@ function useNewCompany(){
 function pickType(el){
   ge('type-pills').querySelectorAll('.pill').forEach(p => p.classList.remove('on'));
   el.classList.add('on');
+  mTypeHint();
 }
 // ── MEETING vs ACTIVITY split (phone) ───────────────────────────────────────
-const M_MEETING_TYPES  = ['In-Person Meeting','Teams / Video Call','Phone Call','Site Visit','Demo Day','Trade Show'];
-const M_ACTIVITY_TYPES = ['Follow-up call','Friendly Check-in','Email sent','WhatsApp sent','Price submitted','Brochures / Information sent'];
+// Meeting definitions (2026-11-20) — keep in step with index.html MTG_DEFS.
+const M_MEETING_TYPES  = ['In-Person Meeting','Teams / Video Call','Site Visit','Demo Day'];
+const M_ACTIVITY_TYPES = ['Phone Call','Follow-up call','Friendly Check-in','Email sent','WhatsApp sent','Price submitted','Brochures / Information sent','Trade Show'];
+const M_STATUS_DNH = 'Did not happen';
+const M_MIN_CHARS = 20;
+const M_TYPE_DEFS = {
+  'In-Person Meeting':'Pre-arranged, face-to-face with a named client contact, about a project or opportunity.',
+  'Teams / Video Call':'Pre-booked online meeting with an agenda. Not an ad-hoc call.',
+  'Site Visit':'Visit to a client or project site with the client present.',
+  'Demo Day':'Product demo or training, at our demo room or the client’s office.',
+  'Phone Call':'Any phone or WhatsApp call. Counts as an activity, not a meeting.',
+  'Trade Show':'Attending an expo. Log each real conversation there as its own meeting.'
+};
+function mTypeHint(){ const h=ge('log-type-hint'); if(h) h.textContent = M_TYPE_DEFS[getType()]||''; }
+function mLogHeldChanged(){
+  const dnh = ge('log-held') && ge('log-held').value===M_STATUS_DNH;
+  const r = ge('log-rule');
+  if(r) r.textContent = dnh ? 'This is kept as an activity, not a meeting. Say what happened (e.g. client cancelled, moved to a new date).'
+                            : 'A meeting needs the client contact’s name, what was discussed and the outcome or agreed next step. Phone calls and trade shows are logged as activities.';
+  const n = ge('log-notes'); if(n) n.placeholder = dnh ? 'What happened? e.g. Client cancelled, moved to 25 Aug.' : 'Key points, outcomes, context…';
+}
+function _mTxtLen(s){ s=String(s||'').replace(/\s+/g,' ').trim(); return /^(tbd|tba|none( yet)?|n\/?a|unknown|-+|\.+|to be (identified|confirmed))$/i.test(s) ? 0 : s.length; }
+function mMeetingIssues(r){
+  const out=[];
+  if(!String(r.person||'').trim()) out.push('Name the client contact you met.');
+  if(_mTxtLen(r.discussed) < M_MIN_CHARS) out.push('Say what was discussed (at least '+M_MIN_CHARS+' characters, not “TBD”).');
+  if(_mTxtLen(r.outcome)   < M_MIN_CHARS) out.push('Record the outcome or agreed next step (at least '+M_MIN_CHARS+' characters).');
+  if(r.date && r.date > today()) out.push('The date is in the future. Only log meetings that have happened.');
+  return out;
+}
+function _mCoKey(s){ return String(s||'').toLowerCase().replace(/\b(ltd|limited|pty|inc|the)\b/g,'').replace(/[^a-z0-9]/g,''); }
+// Online only: is a meeting with this company already logged on this date? Never blocks on error.
+async function mFindDupMeeting(company, date){
+  if(!navigator.onLine || !date) return null;
+  try{
+    const { data } = await sb.from('smtgs').select('data').eq('data->>date', date);
+    const k=_mCoKey(company);
+    const hit=(data||[]).map(r=>r.data).find(m=>m && !m.deleted && m.status!==M_STATUS_DNH && M_MEETING_TYPES.includes(m.type) && k && _mCoKey(m.company)===k);
+    return hit||null;
+  }catch(e){ console.warn('dup check skipped', e); return null; }
+}
 let logMode = 'meeting';
 function fillTypePills(mode){
   const list = mode==='meeting' ? M_MEETING_TYPES : M_ACTIVITY_TYPES;
   ge('type-pills').innerHTML = list.map((tp,i)=>`<button class="pill${i===0?' on':''}" data-type="${tp}" onclick="pickType(this)">${tp}</button>`).join('');
+  const hf=ge('log-held-field'); if(hf) hf.style.display = mode==='meeting' ? '' : 'none';
+  mTypeHint();
 }
 function openLog(mode){ logMode = (mode==='activity')?'activity':'meeting'; showView('log'); }
 function getType(){
@@ -954,18 +1014,27 @@ async function saveActivity(){
   // with matching field names (discussed/projects/outcome). Link via prospectId when a
   // prospect is picked so it appears on that prospect's Activity Log on desktop.
   const mode = logMode;
+  const personVal = (ge('log-person') ? ge('log-person').value.trim() : '') || selectedLead?.contact || '';
+  const statusVal = (mode==='meeting' && ge('log-held')) ? ge('log-held').value : 'Completed';
+  const isHeldMeeting = mode==='meeting' && M_MEETING_TYPES.includes(typeVal) && statusVal!==M_STATUS_DNH;
+  if(isHeldMeeting){
+    const issues = mMeetingIssues({ person:personVal, discussed:ge('log-notes').value, outcome:(ge('log-outcome')?ge('log-outcome').value:''), date:dateVal });
+    if(issues.length){ setMsg('log-msg', 'Not saved yet: '+issues.join(' '), 'err'); window.scrollTo(0,0); return; }
+    const dup = await mFindDupMeeting(company, dateVal);
+    if(dup && !confirm('A meeting with '+(dup.company||company)+' on '+dateVal+' is already logged'+(Array.isArray(dup.by)&&dup.by.length?' by '+dup.by.join(', '):'')+'.\n\nIf you were in the same meeting, ask them to add you as an attendee instead of logging it twice.\n\nLog this as a separate meeting anyway?')) return;
+  }
   // Primary record: a Meeting (conversation) or a completed Activity (a touch you executed).
   const primary = {
     id,
     date:       dateVal,
     type:       typeVal,
-    category:   mode==='meeting' ? 'Meeting' : 'Activity',
+    category:   isHeldMeeting ? 'Meeting' : 'Activity',
     by:         [displayName],
-    status:     'Completed',
+    status:     statusVal,
     leadId:     (selectedLead && !isProspect) ? selectedLead.id : '',
     prospectId: isProspect ? selectedLead.id : '',
     company:    company,
-    person:     selectedLead?.contact || '',
+    person:     personVal,
     phone:      '',
     email:      '',
     discussed:  ge('log-notes').value.trim()    || '',
@@ -1143,6 +1212,7 @@ function fuLog(i){
   const lbl=ge('picker-lbl'); if(lbl) lbl.textContent = f.company||'—';
   const pb=ge('picker-btn'); if(pb) pb.classList.add('chosen');
   const lc=ge('log-company'); if(lc) lc.style.display='none';
+  const lp=ge('log-person'); if(lp) lp.value = f.contact||'';
 }
 
 // ── SAVE PROSPECT ──────────────────────────────────────────────────────────
@@ -1219,6 +1289,9 @@ function resetLogForm(){
   const _pr=ge('log-projects'); if(_pr) _pr.value='';
   const _oc=ge('log-outcome'); if(_oc) _oc.value='';
   const _fn=ge('log-followup-note'); if(_fn) _fn.value='';
+  const _lp=ge('log-person'); if(_lp) _lp.value='';
+  const _lh=ge('log-held'); if(_lh) _lh.value='Completed';
+  mLogHeldChanged();
   ge('type-pills').querySelectorAll('.pill').forEach((p,i) => p.classList.toggle('on', i===0));
   populateAssignSelect();
   setMsg('log-msg', '', null);

@@ -117,6 +117,25 @@
   .crm-status-badge { display:inline-block; border-radius:8px; font-size:.62rem; font-weight:700; padding:.05rem .32rem; white-space:nowrap; }
   .crm-status-completed { background:#e8f5e9; color:#2e7d32; }
   .crm-status-scheduled { background:#e3f2fd; color:#1565c0; }
+/* Meeting quality (2026-11-20) */
+.crm-mtg-strip{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;margin:0 0 .7rem}
+.crm-mtg-chip{display:inline-flex;align-items:center;gap:.3rem;background:#fff;border:1px solid #dde3ec;border-radius:20px;padding:.2rem .65rem;font-size:.76rem;color:#444}
+.crm-mtg-chip-main{background:var(--blue);border-color:var(--blue);color:#fff}
+.crm-mtg-chip-warn{background:#fff8e1;border-color:#ffe082;color:#8d6e00;cursor:pointer}
+.crm-mtg-chip-note{font-size:.72rem;color:#999;margin-left:.3rem}
+.crm-mtype{display:inline-block;font-size:.68rem;font-weight:700;padding:.12rem .45rem;border-radius:5px;background:#eceff1;color:#455a64}
+.crm-mtype-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#90a4ae}
+.crm-mtype.crm-mtype-inperson{background:#e3f2fd;color:#1565c0} .crm-mtype-dot.crm-mtype-inperson{background:#1565c0}
+.crm-mtype.crm-mtype-video{background:#f3e5f5;color:#6a1b9a}    .crm-mtype-dot.crm-mtype-video{background:#6a1b9a}
+.crm-mtype.crm-mtype-site{background:#e0f2f1;color:#00695c}     .crm-mtype-dot.crm-mtype-site{background:#00695c}
+.crm-mtype.crm-mtype-demo{background:#fff3e0;color:#e65100}     .crm-mtype-dot.crm-mtype-demo{background:#e65100}
+.crm-mtg-incomplete{display:inline-block;margin-top:.2rem;font-size:.64rem;font-weight:700;color:#8d6e00;background:#fff8e1;border-radius:5px;padding:.05rem .35rem}
+.crm-mtg-hint{font-size:.72rem;color:#777;margin-top:.25rem;line-height:1.35}
+.crm-mtg-rule{font-size:.74rem;color:#5d4037;background:#fff8e1;border-radius:6px;padding:.35rem .6rem;margin-top:.3rem}
+.crm-mg-table td,.crm-mg-table th{font-size:.8rem;vertical-align:top}
+.crm-mg-yes{color:#2e7d32;font-weight:700;white-space:nowrap} .crm-mg-no{color:#c62828;font-weight:700;white-space:nowrap}
+.crm-mg-rules{font-size:.82rem;padding-left:1.2rem;margin:0} .crm-mg-rules li{margin-bottom:.3rem}
+.crm-mg-note{font-size:.76rem;color:#666;background:#f5f7fa;border-radius:6px;padding:.5rem .7rem;margin-top:.8rem}
 </style>
 </head>
 <body>
@@ -341,23 +360,29 @@
             <option value="">All Types</option>
             <option>In-Person Meeting</option>
             <option>Teams / Video Call</option>
-            <option>Phone Call</option>
             <option>Site Visit</option>
             <option>Demo Day</option>
-            <option>Trade Show</option>
+          </select>
+          <select id="sm-fq" onchange="renderSMtgs()" title="Show only records that don’t meet the capture rules" style="font-size:.79rem;padding:.32rem .55rem;border:1px solid #dde3ec;border-radius:6px;background:#fff">
+            <option value="">All records</option>
+            <option value="incomplete">⚠ Incomplete only</option>
           </select>
           <span style="font-size:.72rem;color:#999">From</span><input type="date" id="sm-from" onchange="renderSMtgs()" style="font-size:.78rem;padding:.28rem .4rem;border:1px solid #dde3ec;border-radius:6px;background:#fff">
           <span style="font-size:.72rem;color:#999">To</span><input type="date" id="sm-to" onchange="renderSMtgs()" style="font-size:.78rem;padding:.28rem .4rem;border:1px solid #dde3ec;border-radius:6px;background:#fff">
           <button class="btn btn-sm btn-outline-secondary" onclick="smSetRange(7)" title="Last 7 days">7d</button>
           <button class="btn btn-sm btn-outline-secondary" onclick="smSetRange(0)" title="Clear dates">All</button>
         </div>
-        <button class="btn btn-sm btn-bv" onclick="openSMtgModal()"><i class="fa fa-plus me-1"></i>Log Meeting</button>
+        <div style="display:flex;gap:.4rem">
+          <button class="btn btn-sm btn-outline-secondary" onclick="openMtgGuide()"><i class="fa fa-info-circle me-1"></i>How we capture meetings</button>
+          <button class="btn btn-sm btn-bv" onclick="openSMtgModal()"><i class="fa fa-plus me-1"></i>Log Meeting</button>
+        </div>
       </div>
+      <div id="smtg-strip" class="crm-mtg-strip"></div>
       <div class="sc">
         <div style="overflow-x:auto">
           <table class="ct">
             <thead><tr>
-              <th>Date</th><th>Company</th><th>Person</th><th>Phone</th><th>Email</th><th>Attendee(s)</th>
+              <th>Date</th><th>Type</th><th>Company</th><th>Person</th><th>Phone</th><th>Email</th><th>Attendee(s)</th>
               <th>What was Discussed</th><th>Projects</th><th>Next Contact</th><th>Next Action</th><th></th>
             </tr></thead>
             <tbody id="smtg-tbody"></tbody>
@@ -374,8 +399,8 @@
           <input type="text" id="act-q" placeholder="🔍 Search..." oninput="renderActs()" style="font-size:.79rem;padding:.32rem .6rem;border:1px solid #dde3ec;border-radius:6px;background:#fff;width:190px">
           <select id="act-ftype" onchange="renderActs()" style="font-size:.79rem;padding:.32rem .55rem;border:1px solid #dde3ec;border-radius:6px;background:#fff">
             <option value="">All Types</option>
-            <option>Follow-up call</option><option>Email sent</option><option>WhatsApp sent</option>
-            <option>Price submitted</option><option>Brochures / Information sent</option>
+            <option>Phone Call</option><option>Follow-up call</option><option>Email sent</option><option>WhatsApp sent</option>
+            <option>Price submitted</option><option>Brochures / Information sent</option><option>Trade Show</option>
           </select>
           <span style="font-size:.72rem;color:#999">From</span><input type="date" id="act-from" onchange="renderActs()" style="font-size:.78rem;padding:.28rem .4rem;border:1px solid #dde3ec;border-radius:6px;background:#fff">
           <span style="font-size:.72rem;color:#999">To</span><input type="date" id="act-to" onchange="renderActs()" style="font-size:.78rem;padding:.28rem .4rem;border:1px solid #dde3ec;border-radius:6px;background:#fff">
@@ -793,7 +818,8 @@
           <div class="col-md-3"><label class="form-label">Meeting Date *</label>
             <input type="date" class="form-control" id="msm-date"></div>
           <div class="col-md-3"><label class="form-label">Type</label>
-            <select class="form-select" id="msm-type"></select></div>
+            <select class="form-select" id="msm-type" onchange="mtgTypeHint('msm-type','msm-type-hint')"></select>
+            <div id="msm-type-hint" class="crm-mtg-hint"></div></div>
           <div class="col-md-3"><label class="form-label">Bergvik Attendee(s)</label>
             <div id="msm-by-list" class="crm-attendee-list"></div></div>
           <div class="col-md-3">
@@ -801,6 +827,7 @@
             <select class="form-select mb-2" id="msm-status" onchange="smtgStatusChanged()">
               <option value="Completed">Completed</option>
               <option value="Scheduled">Scheduled</option>
+              <option value="Did not happen">Did not happen (cancelled / no-show / moved)</option>
             </select>
             <label class="form-label">Scheduled By</label>
             <select class="form-select mb-2" id="msm-scheduled-by"></select>
@@ -825,7 +852,8 @@
           <!-- Row 3: Discussion (hidden for Scheduled meetings) -->
           <div class="col-12" id="msm-disc-section">
             <div class="row g-3">
-              <div class="col-12"><hr style="margin:.25rem 0;border-color:#f0f2f5"><div style="font-size:.72rem;font-weight:700;color:#bbb;margin-bottom:.1rem">DISCUSSION</div></div>
+              <div class="col-12"><hr style="margin:.25rem 0;border-color:#f0f2f5"><div style="font-size:.72rem;font-weight:700;color:#bbb;margin-bottom:.1rem">DISCUSSION</div>
+                <div id="msm-rule-note" class="crm-mtg-rule">A completed meeting needs: a Bergvik attendee, the client contact’s name, what was discussed, and the outcome or agreed next step.</div></div>
               <div class="col-12"><label class="form-label">What was Discussed</label>
                 <textarea class="form-control" id="msm-discussed" rows="3" placeholder="Summary of what was covered in the meeting..."></textarea></div>
               <div class="col-12"><label class="form-label">Projects Specifically Discussed</label>
@@ -863,6 +891,20 @@
   </div>
 </div>
 
+<!-- MODAL: HOW WE CAPTURE MEETINGS (content built from MTG_DEFS / MTG_RULES) -->
+<div class="modal" id="mMtgGuide" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--blue);color:#fff;padding:.75rem 1.1rem">
+        <h6 class="modal-title"><i class="fa fa-info-circle me-2"></i>How we capture meetings</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="mtg-guide-body"></div>
+      <div class="modal-footer"><button class="btn btn-sm btn-bv" data-bs-dismiss="modal">Got it</button></div>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL: LOG ACTIVITY (streamlined, prospect-first) -->
 <div class="modal" id="mLogAct" tabindex="-1">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
@@ -893,8 +935,13 @@
             <input type="email" class="form-control" id="la-email" placeholder="name@co.com"></div>
 
           <div class="col-12"><hr style="margin:.15rem 0;border-color:#f0f2f5"><div style="font-size:.72rem;font-weight:700;color:#bbb;margin-bottom:.1rem">ACTIVITY</div></div>
-          <div class="col-md-4"><label class="form-label">Activity Type</label>
-            <select class="form-select" id="la-type"></select></div>
+          <div class="col-md-4"><label class="form-label" id="la-type-lbl">Activity Type</label>
+            <select class="form-select" id="la-type" onchange="mtgTypeHint('la-type','la-type-hint')"></select>
+            <div id="la-type-hint" class="crm-mtg-hint"></div>
+            <select class="form-select form-select-sm mt-1" id="la-status" style="display:none">
+              <option value="Completed">Meeting took place</option>
+              <option value="Did not happen">Did not happen (cancelled / no-show / moved)</option>
+            </select></div>
           <div class="col-md-4"><label class="form-label">Date *</label>
             <input type="date" class="form-control" id="la-date"></div>
           <div class="col-md-4"><label class="form-label">Logged by</label>
@@ -1307,13 +1354,98 @@ const STATUSES = ['New','Contacted','In Discussion','Meeting Scheduled','Proposa
 const PORDER   = {HIGH:0,MEDIUM:1,PIPELINE:2,LOW:3};
 // ── MEETING vs ACTIVITY split ─────────────────────────────────────────────
 // Meetings = live discussions with a 3rd party. Activities = touches/execution.
-const MEETING_TYPES  = ['In-Person Meeting','Teams / Video Call','Phone Call','Site Visit','Demo Day','Trade Show'];
-const ACTIVITY_TYPES = ['Follow-up call','Friendly Check-in','Email sent','WhatsApp sent','Price submitted','Brochures / Information sent'];
+// ── MEETING DEFINITIONS (2026-11-20) ─────────────────────────────────────
+// A MEETING = a pre-arranged conversation with a named client contact, face-to-face or a booked
+// video meeting. Phone calls and trade shows are ACTIVITIES, whatever category an old record stored.
+const MEETING_TYPES  = ['In-Person Meeting','Teams / Video Call','Site Visit','Demo Day'];
+const ACTIVITY_TYPES = ['Phone Call','Follow-up call','Friendly Check-in','Email sent','WhatsApp sent','Price submitted','Brochures / Information sent','Trade Show'];
+const STATUS_DNH     = 'Did not happen';
+const _ACT_FORCE     = new Set(['Phone Call','Call','Trade Show']);   // always activities, incl. historic records
+const MTG_MIN_CHARS  = 20;
+const MTG_DEFS = [
+  {type:'In-Person Meeting',  counts:true,  def:'Pre-arranged, face-to-face with a named client or prospect contact, about a project or opportunity.'},
+  {type:'Teams / Video Call', counts:true,  def:'Pre-booked online meeting with an agenda (Teams, Zoom). Not an ad-hoc call.'},
+  {type:'Site Visit',         counts:true,  def:'Visit to a client or project site with the client present.'},
+  {type:'Demo Day',           counts:true,  def:'Product demonstration or training, at our demo room or the client’s office.'},
+  {type:'Phone Call',         counts:false, def:'Any phone or WhatsApp call, however long. Log it under Activities.'},
+  {type:'Trade Show',         counts:false, def:'Attending an expo or event. Log it under Activities, and log each real conversation there as its own meeting.'},
+  {type:STATUS_DNH,           counts:false, def:'Cancelled, no-show, moved or unanswered. Set Status to “Did not happen”; it is kept as an activity, not a meeting.'},
+];
+const MTG_RULES = [
+  'One meeting = one record. The person who led it logs it and ticks every Bergvik attendee. Don’t log it again.',
+  'Log it within 2 working days, while the detail is fresh.',
+  'Name the client contact you met, say what was discussed, and record the outcome or agreed next step. “TBD” or a blank is not a meeting.',
+  'Link it to the prospect or lead.',
+  'If it didn’t take place, set Status to “Did not happen”. If it’s still coming up, set Status to “Scheduled”.',
+];
+function mtgDefOf(t){ const d=MTG_DEFS.find(x=>x.type===t); return d?d.def:''; }
+// Text that is blank or a placeholder ("TBD", "None", "N/A") counts as 0 characters.
+function _mtgTxtLen(s){ s=String(s||'').replace(/\s+/g,' ').trim(); return /^(tbd|tba|none( yet)?|n\/?a|unknown|-+|\.+|to be (identified|confirmed))$/i.test(s) ? 0 : s.length; }
+// Reasons a record can't count as a held meeting. Empty list = OK. Only applies to held meetings.
+function meetingIssues(d){
+  if(!d || catOf(d)!=='Meeting') return [];
+  if((d.status||'Completed')==='Scheduled') return [];
+  const out=[];
+  const by = Array.isArray(d.by) ? d.by.filter(Boolean) : (d.by ? [d.by] : []);
+  if(!by.length) out.push('Tick at least one Bergvik attendee.');
+  if(!String(d.person||'').trim()) out.push('Name the client contact you met (Person Name).');
+  if(_mtgTxtLen(d.discussed) < MTG_MIN_CHARS) out.push('Say what was discussed (at least '+MTG_MIN_CHARS+' characters, not “TBD”).');
+  if(_mtgTxtLen(d.outcome)   < MTG_MIN_CHARS) out.push('Record the outcome or agreed next step (at least '+MTG_MIN_CHARS+' characters).');
+  if(d.date && d.date > today()) out.push('The date is in the future. Set Status to “Scheduled” for upcoming meetings.');
+  return out;
+}
+function _mtgCoKey(s){ return String(s||'').toLowerCase().replace(/\b(ltd|limited|pty|inc|the)\b/g,'').replace(/[^a-z0-9]/g,''); }
+// An existing held/scheduled meeting with the same company (or prospect) on the same date.
+function findDupMeeting(d){
+  const k=_mtgCoKey(d.company);
+  return smtgs.find(x=>x && x.id!==d.id && !x.deleted && x.date && x.date===d.date && catOf(x)==='Meeting'
+    && ((d.prospectId && x.prospectId===d.prospectId) || (k && _mtgCoKey(x.company)===k))) || null;
+}
+// Shared save-time gate: returns true if the save may continue.
+function mtgSaveGate(d, isNew){
+  const issues = meetingIssues(d);
+  if(issues.length){
+    alert('This meeting can’t be saved as Completed yet:\n\n• '+issues.join('\n• ')
+      +'\n\nIf it didn’t take place, set Status to “'+STATUS_DNH+'”. If it’s still coming up, set Status to “Scheduled”.');
+    return false;
+  }
+  if(isNew && catOf(d)==='Meeting'){
+    const dup = findDupMeeting(d);
+    if(dup){
+      const who = Array.isArray(dup.by) ? dup.by.join(', ') : (dup.by||'');
+      if(!confirm('A meeting with '+(dup.company||'this company')+' on '+dup.date+' is already logged'+(who?' by '+who:'')+'.\n\n'
+        +'If you were in the same meeting, open that record and tick yourself as an attendee instead of logging it twice.\n\n'
+        +'Log this as a separate meeting anyway?')) return false;
+    }
+  }
+  return true;
+}
+function openMtgGuide(){
+  const b=ge('mtg-guide-body'); if(!b) return;
+  b.innerHTML = '<table class="table table-sm crm-mg-table"><thead><tr><th>Type</th><th>Counts as a meeting?</th><th>Use it for</th></tr></thead><tbody>'
+    + MTG_DEFS.map(d=>'<tr><td style="font-weight:700;white-space:nowrap">'+esc(d.type)+'</td><td>'+(d.counts?'<span class="crm-mg-yes">✓ Meeting</span>':'<span class="crm-mg-no">✗ Activity</span>')+'</td><td>'+esc(d.def)+'</td></tr>').join('')
+    + '</tbody></table><div style="font-weight:800;font-size:.85rem;margin:.9rem 0 .4rem">How to capture a meeting</div><ol class="crm-mg-rules">'
+    + MTG_RULES.map(r=>'<li>'+esc(r)+'</li>').join('') + '</ol>'
+    + '<div class="crm-mg-note">The CRM won’t save a meeting as Completed without a Bergvik attendee, a named client contact, what was discussed and the outcome. It warns you if the same company already has a meeting logged on that date.</div>';
+  bootstrap.Modal.getOrCreateInstance(ge('mMtgGuide')).show();
+}
+function mtgTypeHint(selId, hintId){
+  const h=ge(hintId); if(!h) return;
+  const t=gv(selId), d=mtgDefOf(t);
+  h.innerHTML = d ? esc(d)+' <a href="#" onclick="event.preventDefault();openMtgGuide()">How we capture meetings</a>' : '';
+}
 // Old/loose labels mapped to the new canonical set (for display + categorisation of existing data)
 const TYPE_RENAME = {'Email Follow-up':'Email sent','WhatsApp / Message':'WhatsApp sent','Pricing Submitted':'Price submitted','Follow up call':'Follow-up call','Email more Info':'Email sent'};
 const _ACT_SET = new Set([...ACTIVITY_TYPES,'Email Follow-up','WhatsApp / Message','Pricing Submitted','Follow up call','Email more Info']);
 function normType(t){ return TYPE_RENAME[t]||t||''; }
-function catOf(m){ const t = (m && typeof m==='object') ? m.type : m; if(m && m.category) return m.category; return _ACT_SET.has(t) ? 'Activity' : 'Meeting'; }
+function catOf(m){
+  const isObj = !!(m && typeof m==='object');
+  const raw = isObj ? m.type : m, t = normType(raw);
+  if(_ACT_FORCE.has(t)) return 'Activity';                  // phone calls / trade shows never count as meetings
+  if(isObj && m.status===STATUS_DNH) return 'Activity';      // meetings that didn't take place
+  if(isObj && m.category) return m.category;
+  return (_ACT_SET.has(raw) || _ACT_SET.has(t)) ? 'Activity' : 'Meeting';
+}
 // A prospect's CURRENT open next-action, derived from its activity chain so it never goes stale.
 // If interactions have been logged, the stored (manual) next action is treated as superseded.
 function prospectOpenAction(p){
@@ -1358,9 +1490,9 @@ function repActuals(userId, repName, yr){
   const ytdMeet = ytd.filter(m => catOf(m) === 'Meeting'); // real meetings only
   return {
     meetings:    ytdMeet.length,
-    calls:       ytdMeet.filter(m => m.type === 'Phone Call').length, // substantive calls only (not follow-up calls)
+    calls:       ytd.filter(m => m.type === 'Phone Call' || m.type === 'Call').length, // substantive calls (activities since 2026-11-20)
     demo_days:   ytdMeet.filter(m => m.type === 'Demo Day').length,
-    trade_shows: ytdMeet.filter(m => m.type === 'Trade Show').length,
+    trade_shows: ytd.filter(m => m.type === 'Trade Show').length,
     scheduled:   ytdScheduled.length,
   };
 }
@@ -2262,12 +2394,15 @@ function openLogAct(prospectId, prefill, mode){
   laBuildDatalist(); populateLaSelects(); laFillTypes(mode);
   sv('la-mode', mode);
   const tt=ge('la-modal-title'); if(tt) tt.textContent = mode==='meeting' ? 'Log Meeting' : 'Log Activity';
+  const tl=ge('la-type-lbl'); if(tl) tl.textContent = mode==='meeting' ? 'Meeting Type' : 'Activity Type';
+  const ls=ge('la-status'); if(ls){ ls.style.display = mode==='meeting' ? '' : 'none'; ls.value='Completed'; }
   sv('la-prospectId',''); sv('la-prospect-q','');
   sv('la-company',''); sv('la-person',''); sv('la-phone',''); sv('la-email','');
   sv('la-type', mode==='meeting'?'In-Person Meeting':'Follow-up call'); sv('la-date',today()); sv('la-by',curUser||'');
   sv('la-discussed',''); sv('la-projects',''); sv('la-outcome','');
   sv('la-na',''); sv('la-nd',''); sv('la-assigned',curUser||''); sv('la-followup-note','');
   ge('la-prospect-hint').textContent='';
+  mtgTypeHint('la-type','la-type-hint');
   if(prospectId){
     const p=prospects.find(x=>x.id===prospectId);
     if(p){ sv('la-prospect-q',(p.company||'')+' — '+(p.name||'')); laResolveProspect(); }
@@ -2524,7 +2659,10 @@ function saveLogAct(){
   const by=gv('la-by');
   const mode=gv('la-mode')||'activity';
   const type=gv('la-type');
+  const laStatus = mode==='meeting' ? (gv('la-status')||'Completed') : 'Completed';
   let prospectId=gv('la-prospectId')||'';
+  if(mode==='meeting' && !mtgSaveGate({id:'', date:gv('la-date'), type, status:laStatus, by:by?[by]:[], person:gv('la-person'),
+      discussed:gv('la-discussed'), outcome:gv('la-outcome'), company, prospectId}, true)) return;
   if(!prospectId){
     prospectId=_ensureProspect(company, gv('la-person'), gv('la-phone'), gv('la-email'));
     if(!prospectId) return;   // must link to a prospect
@@ -2535,9 +2673,9 @@ function saveLogAct(){
     id: uid(),
     date:       gv('la-date'),
     type:       type,
-    category:   catOf(type),
+    category:   catOf({type, status:laStatus}),
     by:         by?[by]:[],
-    status:     'Completed',
+    status:     laStatus,
     user_id:    sbSession?.user?.id || null,
     leadId:     '',
     prospectId: prospectId,
@@ -2716,6 +2854,9 @@ function openMtgModal(lid){
 }
 function saveMtg(){
   const title=gv('mm-title').trim(); if(!title){alert('Activity title is required');return;}
+  // Lead-level records count towards Goals, so meeting types follow the same capture rule.
+  if(!mtgSaveGate({id:'', date:gv('mm-date'), type:gv('mm-type'), status:'Completed', by:gv('mm-by'),
+      person:gv('mm-att'), discussed:gv('mm-notes'), outcome:gv('mm-out'), company:'' }, false)) return;
   const lid=gv('mm-lid'), l=leads.find(x=>x.id===lid);
   const ns=gv('mm-us'); if(ns&&l){l.status=ns;l.updated=nowStr();}
   const _newMtg = {id:uid(),leadId:lid,leadTitle:l?.title||'',title,date:gv('mm-date'),
@@ -2770,12 +2911,19 @@ function setSelectedAttendees(by){
 }
 function smtgStatusChanged(){
   const scheduled = gv('msm-status') === 'Scheduled';
+  const dnh = gv('msm-status') === STATUS_DNH;
   const hasId = !!gv('msm-id');
   ge('msm-title').textContent = scheduled
     ? (hasId ? 'Edit Scheduled Meeting' : 'Schedule Meeting')
+    : dnh ? 'Meeting that did not happen'
     : (hasId ? 'Edit Meeting' : 'Log Meeting');
   const disc = ge('msm-disc-section');
   if(disc) disc.style.display = scheduled ? 'none' : '';
+  const rn = ge('msm-rule-note');
+  if(rn) rn.textContent = dnh ? 'This is kept as an activity and does not count as a meeting. Say what happened (e.g. client cancelled, moved to a new date).'
+                              : 'A completed meeting needs: a Bergvik attendee, the client contact’s name, what was discussed, and the outcome or agreed next step.';
+  const dd = ge('msm-discussed');
+  if(dd) dd.placeholder = dnh ? 'What happened? e.g. Client cancelled on the day, moved to 25 Aug.' : 'Summary of what was covered in the meeting...';
 }
 
 function _smtgRowHtml(m,t,opts){
@@ -2785,8 +2933,11 @@ function _smtgRowHtml(m,t,opts){
   const alarm = overdue && !rec;
   const scheduled = (m.status||'Completed')==='Scheduled';
   const byStr = Array.isArray(m.by)?m.by.join(', '):(m.by||'—');
+  const typeCol = !!(opts && opts.typeCol);
+  const issues = typeCol ? meetingIssues(m) : [];
+  const typeCell = typeCol ? `<td style="white-space:nowrap"><span class="crm-mtype crm-mtype-${_mtgTypeKey(m.type)}">${esc(normType(m.type)||'—')}</span>${issues.length?`<br><span class="crm-mtg-incomplete" title="${esc(issues.join(' '))}"><i class="fa fa-exclamation-triangle me-1"></i>Incomplete</span>`:''}</td>` : '';
   return `<tr style="cursor:pointer;font-size:.81rem" onclick="openSMtgModal('${m.id}')">
-      <td style="white-space:nowrap;color:#555;font-size:.77rem">${m.date||'—'}${rec?'':`<br><span class="crm-status-badge crm-status-${scheduled?'scheduled':'completed'}">${scheduled?'Upcoming':'Completed'}</span>`}${(!rec&&m.scheduledBy)?`<br><span style="font-size:.65rem;color:#aaa">by ${esc(m.scheduledBy)}</span>`:''}</td>
+      <td style="white-space:nowrap;color:#555;font-size:.77rem">${m.date||'—'}${rec?'':`<br><span class="crm-status-badge crm-status-${scheduled?'scheduled':'completed'}">${scheduled?'Upcoming':'Completed'}</span>`}${(!rec&&m.scheduledBy)?`<br><span style="font-size:.65rem;color:#aaa">by ${esc(m.scheduledBy)}</span>`:''}</td>${typeCell}
       <td style="font-weight:600">${esc(m.company||'—')}</td>
       <td style="font-size:.79rem">${esc(m.person||'—')}</td>
       <td style="font-size:.76rem;color:#888">${m.phone?`<a href="tel:${esc(m.phone)}" onclick="event.stopPropagation()" style="color:var(--blue)">${esc(m.phone)}</a>`:'—'}</td>
@@ -2799,16 +2950,18 @@ function _smtgRowHtml(m,t,opts){
       <td><button onclick="event.stopPropagation();confirmDel('smtg','${m.id}')" style="background:none;border:none;color:#ddd;cursor:pointer;padding:.1rem .3rem"><i class="fa fa-times"></i></button></td>
     </tr>`;
 }
+function _mtgTypeKey(t){ return ({'In-Person Meeting':'inperson','Teams / Video Call':'video','Site Visit':'site','Demo Day':'demo'})[normType(t)]||'other'; }
 function smSetRange(days){
   if(days>0){ const f=new Date(); f.setDate(f.getDate()-days+1); sv('sm-from', f.toISOString().slice(0,10)); sv('sm-to', today()); }
   else { sv('sm-from',''); sv('sm-to',''); }
   renderSMtgs();
 }
 function renderSMtgs(){
-  const q=gv('sm-q').toLowerCase(), fa=gv('sm-fna'), ft=gv('sm-ftype'), t=today();
+  const q=gv('sm-q').toLowerCase(), fa=gv('sm-fna'), ft=gv('sm-ftype'), fq=gv('sm-fq'), t=today();
   const from=gv('sm-from'), to=gv('sm-to');
   let rows=[...smtgs].filter(m=>{
     if(catOf(m)!=='Meeting') return false;
+    if(fq==='incomplete' && !meetingIssues(m).length) return false;
     if(from && (m.date||'')<from) return false;
     if(to   && (m.date||'')>to)   return false;
     if(fa){ const att=Array.isArray(m.by)?m.by:(m.by?[m.by]:[]); if(!att.includes(fa)) return false; }
@@ -2820,9 +2973,20 @@ function renderSMtgs(){
     if(as!==bs) return as?-1:1;
     return (b.date||'').localeCompare(a.date||'');
   });
-  ge('smtg-tbody').innerHTML = rows.length ? rows.map(m=>_smtgRowHtml(m,t)).join('')
-  : `<tr><td colspan="11"><div class="es"><i class="fa fa-handshake"></i>No meetings logged yet.<br><small>Click "Log Meeting" to add your first one.</small></div></td></tr>`;
-  ge('smtg-ftr').textContent = `${rows.length} meeting${rows.length===1?'':'s'}`;
+  ge('smtg-tbody').innerHTML = rows.length ? rows.map(m=>_smtgRowHtml(m,t,{typeCol:true})).join('')
+  : `<tr><td colspan="12"><div class="es"><i class="fa fa-handshake"></i>No meetings logged yet.<br><small>Click "Log Meeting" to add your first one.</small></div></td></tr>`;
+  // Summary strip: what kind of meetings these are, and how many don't meet the capture rules.
+  const held = rows.filter(m=>(m.status||'Completed')!=='Scheduled');
+  const nSched = rows.length - held.length;
+  const nInc = held.filter(m=>meetingIssues(m).length).length;
+  const byType = MEETING_TYPES.map(tp=>[tp, held.filter(m=>normType(m.type)===tp).length]);
+  const strip = ge('smtg-strip');
+  if(strip) strip.innerHTML = `<span class="crm-mtg-chip crm-mtg-chip-main"><b>${held.length}</b> held</span>`
+    + byType.map(([tp,n])=>`<span class="crm-mtg-chip"><span class="crm-mtype-dot crm-mtype-${_mtgTypeKey(tp)}"></span>${esc(tp)} <b>${n}</b></span>`).join('')
+    + (nSched?`<span class="crm-mtg-chip">Upcoming <b>${nSched}</b></span>`:'')
+    + (nInc?`<span class="crm-mtg-chip crm-mtg-chip-warn" onclick="sv('sm-fq','incomplete');renderSMtgs()" title="Show them"><i class="fa fa-exclamation-triangle me-1"></i>Incomplete <b>${nInc}</b></span>`:'')
+    + `<span class="crm-mtg-chip-note">Phone calls and trade shows are activities, not meetings.</span>`;
+  ge('smtg-ftr').textContent = `${rows.length} meeting${rows.length===1?'':'s'} · ${held.length} held · ${nSched} upcoming`;
 }
 function actSetRange(days){
   if(days>0){ const f=new Date(); f.setDate(f.getDate()-days+1); sv('act-from', f.toISOString().slice(0,10)); sv('act-to', today()); }
@@ -2876,7 +3040,11 @@ function msmResolveProspect(){
 function openSMtgModal(id){
   populateSel();
   const m = id ? smtgs.find(x=>x.id===id) : null;
-  msmFillTypes(m?catOf(m):'Meeting');
+  msmFillTypes(m ? (m.status===STATUS_DNH ? 'Meeting' : catOf(m)) : 'Meeting');
+  if(m && m.type && !Array.from(ge('msm-type').options).some(o=>o.value===normType(m.type))){
+    // Older record whose type is no longer offered here (e.g. a phone call opened as a meeting): keep it visible.
+    ge('msm-type').insertAdjacentHTML('beforeend', `<option>${esc(normType(m.type))}</option>`);
+  }
   msmBuildDatalist();
   sv('msm-id', m?.id||'');
   sv('msm-prospect', m?.prospectId||'');
@@ -2896,6 +3064,7 @@ function openSMtgModal(id){
   sv('msm-na',       m?.nextAction|| '');
   sv('msm-nd',       m?.nextDate  || '');
   sv('msm-assigned', m?.assignedTo|| curUser || '');
+  mtgTypeHint('msm-type','msm-type-hint');
   const apb=ge('msm-addprospect-btn'); if(apb) apb.style.display = (m && !m.prospectId && m.company) ? '' : 'none';
   const hh=ge('msm-prospect-hint'); if(hh) hh.innerHTML = (m&&m.prospectId)?'<span style="color:#2e7d32"><i class="fa fa-check-circle me-1"></i>Linked to prospect</span>':'';
   smtgStatusChanged();
@@ -2918,6 +3087,9 @@ function saveSMtg(){
   const id=gv('msm-id');
   let prospectId=gv('msm-prospect')||'';
   const leadId=gv('msm-lead')||'';
+  // Quality gate first, so a rejected meeting never creates a prospect as a side effect.
+  if(!mtgSaveGate({id:id||'', date:gv('msm-date'), type:gv('msm-type'), status:gv('msm-status'), by:getSelectedAttendees(),
+      person:gv('msm-person'), discussed:gv('msm-discussed'), outcome:gv('msm-outcome'), company, prospectId}, !id)) return;
   if(!prospectId && !leadId){
     prospectId=_ensureProspect(company, gv('msm-person'), gv('msm-phone'), gv('msm-email'));
     if(!prospectId) return;   // must link to a prospect (or a lead)
@@ -2927,7 +3099,7 @@ function saveSMtg(){
     id: id||uid(),
     date:       gv('msm-date'),
     type:       gv('msm-type'),
-    category:   catOf(gv('msm-type')),
+    category:   catOf({type:gv('msm-type'), status:gv('msm-status')}),
     by:         getSelectedAttendees(),
     status:     gv('msm-status'),
     scheduledBy: gv('msm-scheduled-by') || curUser || '',
@@ -2958,8 +3130,8 @@ function saveSMtg(){
 // ── DELETE ────────────────────────────────────────────────────────────────
 function confirmDel(type,id,lid){
   const msg={lead:'Delete this lead and ALL its contacts and activity? This cannot be undone.',
-    contact:'Remove this contact?',meeting:'Delete this activity log entry?',smtg:'Delete this meeting record?'};
-  ge('del-msg').textContent=msg[type];
+    contact:'Remove this contact?',meeting:'Delete this activity log entry?',smtg:'Delete this record?\n\nOnly delete duplicates or mistakes. If a meeting didn’t take place, open it and set Status to “Did not happen” instead. Phone calls are kept as activities.'};
+  ge('del-msg').textContent=msg[type]; ge('del-msg').style.whiteSpace='pre-line';
   ge('del-yes').onclick=()=>{ doDel(type,id,lid); bootstrap.Modal.getOrCreateInstance(ge('mDel')).hide(); };
   bootstrap.Modal.getOrCreateInstance(ge('mDel')).show();
 }
