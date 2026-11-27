@@ -225,6 +225,7 @@
     <div class="nav-lnk" id="nl-meetings"  onclick="showView('meetings')" style="display:none"><i class="fa fa-comments"></i>All Activity</div>
     <div class="nav-lnk" id="nl-digest" onclick="showView('digest')"><i class="fa fa-chart-line"></i>Weekly Digest</div>
     <div class="nav-lnk" id="nl-goals" onclick="showView('goals')"><i class="fa fa-bullseye"></i>Goals</div>
+    <div class="nav-lnk" id="nl-training" onclick="showView('training')"><i class="fa fa-graduation-cap"></i>Training</div>
     <div class="nav-lnk" id="nl-admin"       onclick="showView('admin')"       style="display:none"><i class="fa fa-user-shield"></i>Admin</div>
     <div class="nav-lnk" id="nl-admin"       onclick="showView('admin')"       style="display:none"><i class="fa fa-user-shield"></i>Admin</div>
     <div class="nav-lnk" id="nl-mgmt"        onclick="showView('mgmt')"        style="display:none"><i class="fa fa-chart-bar"></i>Management</div>
@@ -654,6 +655,7 @@
     </div>
 
     <!-- ADMIN VIEW (admin-only) -->
+    <div class="view" id="view-training"><div id="training-content"></div></div>
     <div class="view" id="view-admin">
       <div id="admin-content"><div class="es"><i class="fa fa-spinner fa-spin"></i>Loading…</div></div>
     </div>
@@ -1756,7 +1758,7 @@ async function doLogout(){
 
 // ── NAVIGATION ────────────────────────────────────────────────────────────
 let curView='dashboard', curLead=null;
-const TITLES = {dashboard:'Dashboard',leads:'Leads',smtg:'Meetings',activities:'Activities',followups:'Follow-ups Due',pipeline:'Pipeline',meetings:'All Activity','lead-detail':'Lead Detail',l2b:'L2B Inbox',digest:'Weekly Digest',goals:'Goals',prospects:'Prospects','prospect-detail':'Prospect Detail',mgmt:'Management','rep-targets':'Rep Targets',admin:'Admin',audit:'Audit Log'};
+const TITLES = {dashboard:'Dashboard',leads:'Leads',smtg:'Meetings',activities:'Activities',followups:'Follow-ups Due',pipeline:'Pipeline',meetings:'All Activity','lead-detail':'Lead Detail',l2b:'L2B Inbox',digest:'Weekly Digest',goals:'Goals',prospects:'Prospects','prospect-detail':'Prospect Detail',mgmt:'Management','rep-targets':'Rep Targets',admin:'Admin',audit:'Audit Log',training:'Training'};
 
 function showView(v){
   window.scrollTo(0,0);
@@ -1778,6 +1780,7 @@ function showView(v){
   if(v==='l2b')             renderL2B();
   if(v==='digest')          renderDigest();
   if(v==='goals')           renderGoals();
+  if(v==='training')        renderTraining();
   if(v==='prospects')       renderProspects();
   if(v==='prospect-detail') renderProspectDetail(curProspect);
   if(v==='admin')        renderAdmin();
@@ -2783,7 +2786,7 @@ function renderFollowupsDue(){
     if(due && due<t){ dcol='#c62828'; dic='<i class="fa fa-exclamation-circle me-1"></i>'; dfw='700'; }          // overdue — red
     else if(due && due<=horizon){ dcol='#c77800'; dic='<i class="fa fa-clock me-1"></i>'; dfw='600'; }           // within 7 days — amber
     else if(due){ dcol='#2e7d32'; dic='<i class="fa fa-calendar-check me-1"></i>'; }                             // further out — green
-    return `<tr style="font-size:.81rem;${m.prospectId?'cursor:pointer':''}" ${m.prospectId?`onclick="curProspect='${m.prospectId}';showView('prospect-detail')"`:''}>
+    return `<tr style="font-size:.81rem;${(m.prospectId||m.leadId)?'cursor:pointer':''}" ${m.prospectId?`onclick="curProspect='${esc(m.prospectId)}';showView('prospect-detail')"`:(m.leadId?`onclick="openLead('${esc(m.leadId)}')"`:'')}>
       <td style="white-space:nowrap;color:${dcol};font-weight:${dfw}">${dic}${due||'—'}</td>
       <td style="font-weight:600">${esc(m.company||'—')}</td>
       <td style="font-size:.79rem">${esc(m.person||'—')}</td>
@@ -4758,6 +4761,47 @@ function rerenderCurrent(){
   else if(curView==='lead-detail' && curLead) renderLD(curLead);
   else if(curView==='l2b') renderL2B();
   else if(curView==='leads') renderLeads();
+}
+
+// ── TRAINING (videos in the private 'training' bucket; list in training_videos) ──
+// Staff play videos through short-lived signed links; admins upload/replace.
+const TV_MAX_MB = 50;
+let _tvRows = [];
+async function renderTraining(){
+  const el=ge('training-content'); if(!el) return;
+  el.innerHTML='<div class="es"><i class="fa fa-spinner fa-spin me-2"></i>Loading…</div>';
+  const {data,error}=await sb.from('training_videos').select('id,sort,title,description,path,audience,duration_sec').order('sort');
+  if(error){ el.innerHTML='<div class="es"><i class="fa fa-exclamation-circle me-2" style="color:#c62828"></i>Could not load the training videos.</div>'; return; }
+  _tvRows=data||[];
+  const urls={};
+  await Promise.all(_tvRows.map(async v=>{ try{ const r=await sb.storage.from('training').createSignedUrl(v.path,3600); urls[v.id]=r?.data?.signedUrl||''; }catch(e){ urls[v.id]=''; } }));
+  const adm=amAdmin();
+  const dur=s=>s?`${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`:'';
+  const cards=_tvRows.map((v,i)=>`<div class="col-12 col-md-6 col-xl-4"><div class="sc h-100" style="margin:0">
+      <div style="background:#0f2037;border-radius:8px 8px 0 0;aspect-ratio:16/9;display:flex;align-items:center;justify-content:center">
+        ${urls[v.id]?`<video controls preload="metadata" playsinline style="width:100%;height:100%;border-radius:8px 8px 0 0" src="${esc(urls[v.id])}"></video>`:'<div style="color:#8aa;font-size:.8rem"><i class="fa fa-video-slash me-1"></i>Video not uploaded yet</div>'}
+      </div>
+      <div style="padding:.7rem .9rem">
+        <div style="display:flex;justify-content:space-between;gap:.5rem"><b style="font-size:.9rem">${i+1}. ${esc(v.title)}</b><span style="font-size:.72rem;color:#999;white-space:nowrap">${dur(v.duration_sec)}${v.audience==='admin'?' · <span style="color:#6a1b9a">admins</span>':''}</span></div>
+        <div style="font-size:.78rem;color:#666;margin-top:.2rem">${esc(v.description||'')}</div>
+        ${adm?`<div style="margin-top:.5rem"><label class="btn btn-sm btn-outline-secondary py-0" style="font-size:.72rem;margin:0"><i class="fa fa-upload me-1"></i>${urls[v.id]?'Replace video':'Upload video'}<input type="file" accept="video/mp4" hidden data-id="${v.id}" onchange="tvUpload(this)"></label> <span id="tv-st-${v.id}" style="font-size:.72rem;color:#888"></span></div>`:''}
+      </div></div></div>`).join('');
+  el.innerHTML=`<div class="sc mb-3"><div style="padding:.8rem 1rem;font-size:.84rem;color:#444">
+      <b>Short how-to videos for the CRM.</b> Narrated, with captions so you can also watch with the sound off. The companies and people in them are made up.
+      <div style="margin-top:.45rem;background:#e8f5e9;border-radius:6px;padding:.45rem .7rem;color:#2e7d32"><i class="fa fa-microphone me-1"></i><b>Tip:</b> on your phone, tap the microphone on your keyboard to dictate meeting notes instead of typing.</div></div></div>
+    <div class="row g-3">${cards||'<div class="col-12"><div class="es">No training videos yet.</div></div>'}</div>`;
+}
+async function tvUpload(inp){
+  if(!amAdmin()) return;
+  const f=inp.files&&inp.files[0]; const id=Number(inp.dataset.id); const v=_tvRows.find(x=>x.id===id); const st=ge('tv-st-'+id);
+  if(!f||!v) return;
+  if(f.type!=='video/mp4'){ alert('Please choose an MP4 video.'); inp.value=''; return; }
+  if(f.size>TV_MAX_MB*1024*1024){ alert('That file is over '+TV_MAX_MB+' MB.'); inp.value=''; return; }
+  if(st) st.textContent='Uploading…';
+  const {error}=await sb.storage.from('training').upload(v.path,f,{upsert:true,contentType:'video/mp4',cacheControl:'60'});
+  if(error){ if(st) st.textContent=''; alert('Upload failed: '+error.message); return; }
+  logAudit('training', String(id), v.title, 'training_video_upload');
+  renderTraining();
 }
 
 // ── Toast with Undo ────────────────────────────────────────────────────────
