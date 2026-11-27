@@ -1522,6 +1522,7 @@ const SA_KW = ['south africa','gauteng','western cape','eastern cape','kwazulu',
 
 function autoAssign(lead){
   if(lead.assigned) return lead;                            // never override
+  if(typeof lhPool!=='undefined' && lhPool.has(lead.id)) return lead; // Lead Hunter still researching
   const t   = (lead.title       || '').toLowerCase();
   const d   = (lead.description || '').toLowerCase();
   const cat = (lead.category    || '').toLowerCase();
@@ -1565,6 +1566,10 @@ async function loadAll(){
   contacts = (c.data||[]).map(r=>r.data).filter(r=>!r.deleted);
   targets  = tg.data || [];
   prospects = (pr.data||[]).map(r=>r.data).filter(r=>!r.deleted);
+  Object.keys(_synced).forEach(k=>_synced[k].clear());
+  _markSynced('leads',leads); _markSynced('meetings',meetings); _markSynced('smtgs',smtgs);
+  _markSynced('contacts',contacts); _markSynced('prospects',prospects);
+  await loadLH(); // Lead Hunter pool + pending recommendations (needed before auto-assign)
   // Apply auto-assignment rules to any unassigned leads and sync back
   const _unBefore = leads.filter(x=>!x.assigned).length;
   leads.forEach(x=>autoAssign(x));
@@ -1586,15 +1591,27 @@ function save(){
   if(sbSession) _syncToSb().catch(console.error);
 }
 
+// ── Change tracking: only records that changed on THIS screen are written back.
+// (Before: every save re-wrote every record, silently overwriting other people's
+//  newer edits, server-side merges and Lead Hunter updates.)
+const _synced = {leads:new Map(), meetings:new Map(), smtgs:new Map(), contacts:new Map(), prospects:new Map()};
+function _markSynced(table, recs){ (recs||[]).forEach(r=>{ if(r&&r.id) _synced[table].set(r.id, JSON.stringify(r)); }); }
+function _dirty(table, recs){ return (recs||[]).filter(r=>r&&r.id&&_synced[table].get(r.id)!==JSON.stringify(r)); }
 async function _syncToSb(){
   const t = new Date().toISOString();
-  await Promise.all([
-    sb.from('leads').upsert(leads.map(l=>({id:l.id,data:l,updated_at:t}))),
-    sb.from('meetings').upsert(meetings.map(m=>({id:m.id,lead_id:m.leadId,data:m}))),
-    sb.from('smtgs').upsert(smtgs.map(m=>({id:m.id,data:m}))),
-    sb.from('contacts').upsert(contacts.map(c=>({id:c.id,lead_id:c.leadId,data:c}))),
-    sb.from('prospects').upsert(prospects.map(p=>({id:p.id,data:p,updated_at:t}))),
-  ]);
+  const d = {leads:_dirty('leads',leads), meetings:_dirty('meetings',meetings), smtgs:_dirty('smtgs',smtgs),
+             contacts:_dirty('contacts',contacts), prospects:_dirty('prospects',prospects)};
+  const rows = {
+    leads:     d.leads.map(l=>({id:l.id,data:l,updated_at:t})),
+    meetings:  d.meetings.map(m=>({id:m.id,lead_id:m.leadId,data:m})),
+    smtgs:     d.smtgs.map(m=>({id:m.id,data:m})),
+    contacts:  d.contacts.map(c=>({id:c.id,lead_id:c.leadId,data:c})),
+    prospects: d.prospects.map(p=>({id:p.id,data:p,updated_at:t})),
+  };
+  await Promise.all(Object.keys(rows).filter(k=>rows[k].length).map(async k=>{
+    const {error} = await sb.from(k).upsert(rows[k]);
+    if(error) console.error('sync '+k, error); else _markSynced(k, d[k]);
+  }));
 }
 
 async function sbDelLead(id){ await Promise.all([sb.from('leads').delete().eq('id',id),sb.from('meetings').delete().eq('lead_id',id),sb.from('contacts').delete().eq('lead_id',id)]); }
@@ -1608,7 +1625,9 @@ async function sbPut(table, record){
   if(table==='leads'||table==='prospects') row.updated_at = new Date().toISOString();
   if(table==='meetings') row.lead_id = record.leadId;
   if(table==='contacts') row.lead_id = record.leadId;
-  await sb.from(table).upsert(row);
+  const {error} = await sb.from(table).upsert(row);
+  if(error) throw error;
+  if(_synced[table]) _markSynced(table,[record]);
 }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
 function nowStr(){ const d=new Date(); return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds()); }
@@ -1708,7 +1727,7 @@ function showView(v){
 
 function populateSel(){
   // Status filter
-  const lfs=ge('l-fs'); if(lfs){ const cv=lfs.value; lfs.innerHTML='<option value="">All Statuses</option>'+STATUSES.map(s=>`<option${s===cv?' selected':''}>${s}</option>`).join(''); }
+  const lfs=ge('l-fs'); if(lfs){ const cv=lfs.value; lfs.innerHTML='<option value="">All Statuses</option><option value="__LH__"'+(cv==='__LH__'?' selected':'')+'>Lead Hunter – Researching</option>'+STATUSES.map(s=>`<option${s===cv?' selected':''}>${s}</option>`).join(''); }
   // Assignee filter
   const lfa=ge('l-fa'); if(lfa){ const cv=lfa.value; lfa.innerHTML='<option value="">All Assignees</option>'+TEAM.map(u=>`<option${u===cv?' selected':''}>${esc(u)}</option>`).join(''); }
   // Lead modal assign
@@ -1763,7 +1782,7 @@ function renderDash(){
 
   // Merge follow-ups from lead next actions, lead-linked meetings, and standalone meetings
   // L2B new-leads stat card
-  const _l2bNew = leads.filter(l=>l.source==='L2B Weekly Report'&&!l.assigned&&l.status==='New').length;
+  const _l2bNew = leads.filter(l=>l.source==='L2B Weekly Report'&&!l.assigned&&l.status==='New'&&!lhPool.has(l.id)).length;
   ge('stat-row').innerHTML += `<div class="col-6 col-md-3" onclick="showView('l2b')" style="cursor:pointer"><div class="stat-card" style="box-shadow:0 1px 4px rgba(0,0,0,.05);border:${_l2bNew?'2px solid #e65100':'1px solid #e8edf3'}"><div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div class="stat-n" style="color:#e65100">${_l2bNew}</div><div class="stat-l">New L2B Leads</div></div><i class="fa fa-satellite-dish" style="color:#e65100;opacity:.15;font-size:1.8rem;margin-top:.2rem"></i></div></div></div>`;
 
   const fups0 = leads.filter(l=>l.nextAction&&l.nextActionDate).map(l=>({label:l.nextAction,sub:l.title,date:l.nextActionDate,type:'lead-na',id:l.id}));
@@ -1797,7 +1816,8 @@ function renderLeads(){
   const q=gv('l-q').toLowerCase(), pf=gv('l-fp'), sf=gv('l-fs'), af=gv('l-fa'), vf=gv('l-fv'), t=today();
   let rows = leads.filter(l=>{
     if(pf&&l.priority!==pf) return false;
-    if(sf&&l.status!==sf)   return false;
+    if(sf==='__LH__'){ if(!lhPool.has(l.id)) return false; }
+    else if(sf&&(l.status!==sf||lhPool.has(l.id))) return false; // pool leads only under "Lead Hunter – Researching"
     if(af&&l.assigned!==af) return false;
     if(vf&&l.value!==vf)    return false;
     if(q&&![l.title,l.client,l.location,l.description].join(' ').toLowerCase().includes(q)) return false;
@@ -1809,13 +1829,13 @@ function renderLeads(){
     return `<tr onclick="openLead('${l.id}')">
     <td><span class="pb p-${l.priority}">${l.priority}</span></td>
     <td style="max-width:220px"><div style="font-weight:600">${esc(l.title)}</div><div style="margin-top:.18rem">${ageBadge(l)}</div></td>
-    <td><span class="sb">${esc(l.status)}</span></td>
+    <td>${lhPool.has(l.id)?'<span class="sb" style="background:#f3e5f5;color:#6a1b9a">Researching</span>':`<span class="sb">${esc(l.status)}</span>`}</td>
     <td style="font-size:.77rem;color:#666">${esc(l.category||'—')}</td>
     <td style="font-size:.77rem;color:#555">${esc(l.value||'—')}</td>
     <td style="font-size:.77rem;color:${l.closing&&l.closing<t?'#c62828':'#999'}">${l.closing||'—'}</td>
     <td style="font-size:.77rem;color:${naOverdue?'#c62828':l.nextAction?'#e65100':'#ccc'};font-weight:${l.nextAction?'600':'400'}">${l.nextAction?`<i class="fa fa-arrow-right me-1" style="font-size:.65rem"></i>${esc(l.nextAction)}`:'—'}</td>
     <td style="font-size:.77rem;color:${naOverdue?'#c62828':'#999'};white-space:nowrap">${naOverdue?'⚠ ':''}${l.nextActionDate||'—'}</td>
-    <td style="font-size:.77rem;color:#999">${esc(l.assigned||'—')}</td>
+    <td style="font-size:.77rem;color:#999">${lhPool.has(l.id)?'<span style="color:#6a1b9a"><i class="fa fa-robot me-1"></i>Lead Hunter</span>':esc(l.assigned||'—')}</td>
   </tr>`;}).join('')
   : `<tr><td colspan="8"><div class="es"><i class="fa fa-folder-open"></i>No leads found</div></td></tr>`;
   ge('leads-ftr').textContent = `${rows.length} of ${leads.length} lead${leads.length===1?'':'s'}`;
@@ -1837,6 +1857,9 @@ function renderLD(id){
           <div><span class="pb p-${l.priority} me-1">${l.priority}</span><span class="sb">${esc(l.status)}</span></div>
           <div>
             <button class="btn btn-sm btn-bv me-1" onclick="openLeadModal('${l.id}')"><i class="fa fa-pen me-1"></i>Edit</button>
+            ${!['Won','Dead / Lost'].includes(l.status)&&canCloseLead(l)?`<button class="btn btn-sm btn-outline-secondary me-1" onclick="openCloseLead('${l.id}')" title="Close this lead as lost / no longer viable"><i class="fa fa-circle-xmark me-1"></i>Close</button>`:''}
+            ${canRequestResearch(l)&&!lhResearch[l.id]?`<button class="btn btn-sm btn-outline-secondary me-1" onclick="lhRequestResearch('${l.id}')" title="Ask Lead Hunter to research this lead - it stays with its rep"><i class="fa fa-magnifying-glass me-1"></i>Research</button>`:''}
+            ${amAdmin()?`<button class="btn btn-sm btn-outline-secondary me-1" onclick="openMerge('${l.id}')" title="This is the same project as another lead"><i class="fa fa-code-merge me-1"></i>Merge</button>`:''}
             <button class="btn btn-sm btn-outline-danger" onclick="confirmDel('lead','${l.id}')"><i class="fa fa-trash"></i></button>
           </div>
         </div>
@@ -1855,7 +1878,7 @@ function renderLD(id){
             <div><label>Value (ZAR)</label><span>${esc(l.value||'—')}</span></div>
             <div><label>Location</label><span>${esc(l.location||'—')}</span></div>
             <div><label>Closing Date</label><span style="color:${l.closing&&l.closing<t?'#c62828':'inherit'}">${l.closing||'—'}</span></div>
-            <div><label>Assigned To</label><span>${esc(l.assigned||'—')}</span></div>
+            <div><label>Assigned To</label><span>${lhPool.has(l.id)?LH_LABEL:esc(l.assigned||'—')}</span></div>
             <div><label>Source</label><span>${esc(l.source||'—')}</span></div>
             <div><label>L2B ID</label><span>${l.l2bId?`<a href="${esc(l.link||'#')}" target="_blank">${esc(l.l2bId)}</a>`:'—'}</span></div>
             <div><label>Division</label><span>${esc(l.division||'—')}</span></div>
@@ -1937,6 +1960,7 @@ function renderLD(id){
       </div>
     </div>
   </div>`;
+  renderLHPanel(id); // Lead Hunter research, changes, recommendations (async)
   // ── Audit history (async, appended after main render) ─────────────────────
   (async ()=>{
     try {
@@ -1968,39 +1992,80 @@ function renderLD(id){
 }
 
 function qStatus(id, s){
-  const idx = leads.findIndex(l=>l.id===id); if(idx<0) return;
-  if(s === 'Dead / Lost'){
-    const reasons = ['Spec substituted / value-engineered out','Price','Contractor lost the tender',
-      'Project cancelled or stalled','Scope change','Process failure','No response / went cold','Other'];
-    const chosen = window.prompt('Select loss reason:\n' + reasons.map((r,i)=>(i+1)+'. '+r).join('\n') + '\n\nEnter number or type reason:');
-    if(!chosen) return;
-    const r = parseInt(chosen);
-    leads[idx].lossReason = (r>=1&&r<=reasons.length) ? reasons[r-1] : chosen;
-  }
-  const prev = leads[idx].status;
-  leads[idx].status  = s;
-  leads[idx].updated = nowStr();
-  leads[idx].statusHistory = [...(leads[idx].statusHistory||[]), {date:today(), from:prev, to:s, by:curUser}];
-  save(); sbPut('leads', leads[idx]).catch(console.error);
-  logAudit('lead', id, leads[idx].title||leads[idx].client||'', 'stage_change', 'status', prev, s);
-  renderLD(id);
+  const l = leads.find(x=>x.id===id); if(!l || l.status===s) return;
+  if(!canMoveLead(l)){ alert(lhPool.has(id)?'This lead is with Lead Hunter. An admin hands it over to a rep first.':'Only the assigned rep or an admin can change this lead\'s stage.'); return; }
+  if(s === 'Dead / Lost'){ openCloseLead(id); return; }
+  if(s === 'Won' && !confirm('Mark "'+l.title+'" as Won?')) return;
+  setLeadStatus(id, s, {});
 }
 
-// ── PIPELINE ──────────────────────────────────────────────────────────────
-function renderPipe(){
-  ge('pl-board').innerHTML=STATUSES.map(s=>{
-    const col=leads.filter(l=>l.status===s).sort((a,b)=>(PORDER[a.priority]??4)-(PORDER[b.priority]??4));
-    return `<div class="pl-col"><div class="pl-hdr">${s}<span style="background:rgba(255,255,255,.2);border-radius:10px;padding:.03rem .38rem;font-size:.67rem">${col.length}</span></div>
-    <div class="pl-body">${col.map(l=>`<div class="pl-card bc-${l.priority}" onclick="openLead('${l.id}')">
+// ── PIPELINE (drag & drop) ────────────────────────────────────────────────
+// Columns: Lead Hunter – Researching (pool) → each status. Reps drag their own leads; admins drag all.
+let pipeShowAllClosed = false;
+const PIPE_CLOSED_DAYS = 90;
+function _closedDate(l){
+  const h=[...(l.statusHistory||[])].reverse().find(x=>x.to===l.status);
+  return (h&&h.date) || (l.updated||l.created||'').slice(0,10);
+}
+function _fmtR(v){ if(!v) return 'R0'; if(v>=1e6) return 'R'+(v/1e6).toFixed(v>=1e7?0:1)+'m'; if(v>=1e3) return 'R'+Math.round(v/1e3)+'k'; return 'R'+Math.round(v); }
+function _pipeCard(l, inPool){
+  const drag = inPool ? amAdmin() : canMoveLead(l);
+  const recs = lhRecs[l.id]||[];
+  return `<div class="pl-card bc-${l.priority}${inPool?' pl-lh':''}" ${drag?`draggable="true" ondragstart="pipeDragStart(event,'${l.id}')" ondragend="pipeDragEnd()"`:''} onclick="openLead('${l.id}')" title="${drag?'Drag to move · click to open':'Click to open'}">
       <span class="pb p-${l.priority}" style="font-size:.61rem">${l.priority}</span>
+      ${recs.includes('ready_for_handover')?'<span class="lh-badge lh-ready"><i class="fa fa-flag-checkered me-1"></i>Ready for handover</span>':''}
+      ${recs.includes('close_lost')?'<span class="lh-badge lh-close"><i class="fa fa-circle-xmark me-1"></i>Bot suggests close</span>':''}
+      ${lhResearch[l.id]?'<span class="lh-badge lh-rr"><i class="fa fa-magnifying-glass me-1"></i>Research requested</span>':''}
       <div style="font-size:.78rem;font-weight:600;line-height:1.35;color:#222;margin-top:.25rem">${esc(l.title.length>52?l.title.slice(0,52)+'…':l.title)}</div>
-      ${l.location?`<div style="font-size:.69rem;color:#bbb;margin-top:.2rem"><i class="fa fa-map-marker-alt me-1"></i>${esc(l.location)}</div>`:''}
-      ${l.assigned?`<div style="font-size:.69rem;color:#1565c0;margin-top:.15rem"><i class="fa fa-user me-1"></i>${esc(l.assigned)}</div>`:''}
-      ${l.closing?`<div style="font-size:.69rem;color:#c62828;margin-top:.15rem"><i class="fa fa-calendar me-1"></i>${l.closing}</div>`:''}
+      ${l.client?`<div style="font-size:.69rem;color:#777;margin-top:.15rem"><i class="fa fa-building me-1"></i>${esc(l.client.slice(0,40))}</div>`:''}
+      ${l.location?`<div style="font-size:.69rem;color:#bbb;margin-top:.2rem"><i class="fa fa-map-marker-alt me-1"></i>${esc(l.location.slice(0,48))}</div>`:''}
+      ${inPool?`<div style="font-size:.69rem;color:#6a1b9a;margin-top:.15rem"><i class="fa fa-robot me-1"></i>Lead Hunter</div>`:(l.assigned?`<div style="font-size:.69rem;color:#1565c0;margin-top:.15rem"><i class="fa fa-user me-1"></i>${esc(l.assigned)}</div>`:'')}
+      ${l.valueZar?`<div style="font-size:.69rem;color:#2e7d32;margin-top:.15rem"><i class="fa fa-coins me-1"></i>${_fmtR(Number(l.valueZar))}</div>`:''}
+      ${l.closing?`<div style="font-size:.69rem;color:#c62828;margin-top:.15rem"><i class="fa fa-calendar me-1"></i>${esc(l.closing)}</div>`:''}
       <div style="margin-top:.3rem">${ageBadge(l)}</div>
-    </div>`).join('')}
-    ${!col.length?'<div style="text-align:center;color:#ccc;font-size:.75rem;padding:1.5rem 0">Empty</div>':''}</div></div>`;
+    </div>`;
+}
+function _pipeCol(key, label, cards, hdrStyle, extra){
+  const valued = cards.filter(l=>Number(l.valueZar)>0);
+  const sum = valued.reduce((a,l)=>a+Number(l.valueZar),0);
+  return `<div class="pl-col">
+    <div class="pl-hdr" style="${hdrStyle||''}"><span>${label}</span><span style="background:rgba(255,255,255,.2);border-radius:10px;padding:.03rem .38rem;font-size:.67rem">${cards.length}</span></div>
+    <div class="pl-sub" title="${valued.length} of ${cards.length} leads have a rand value">${_fmtR(sum)} · ${valued.length}/${cards.length} valued</div>
+    <div class="pl-body" data-col="${esc(key)}" ondragover="pipeDragOver(event)" ondragleave="pipeDragLeave(event)" ondrop="pipeDrop(event)">
+      ${cards.map(l=>_pipeCard(l, key==='__LH__')).join('')}
+      ${!cards.length?'<div style="text-align:center;color:#ccc;font-size:.75rem;padding:1.5rem 0">Empty</div>':''}
+      ${extra||''}
+    </div></div>`;
+}
+function renderPipe(){
+  _ensureLHModals(); // styles for columns, drag highlight and Undo pop-up
+  const cutoff = new Date(Date.now()-PIPE_CLOSED_DAYS*864e5).toISOString().slice(0,10);
+  const sortP = (a,b)=>(PORDER[a.priority]??4)-(PORDER[b.priority]??4);
+  const pool = leads.filter(l=>lhPool.has(l.id)).sort((a,b)=>{
+    const ra=(lhRecs[a.id]||[]).includes('ready_for_handover')?0:1, rb=(lhRecs[b.id]||[]).includes('ready_for_handover')?0:1;
+    return ra-rb || sortP(a,b); });
+  let html = _pipeCol('__LH__', '<i class="fa fa-robot me-1"></i>Lead Hunter – Researching', pool, 'background:#6a1b9a');
+  html += STATUSES.map(st=>{
+    let col = leads.filter(l=>l.status===st && !lhPool.has(l.id)).sort(sortP);
+    let extra = '';
+    if((st==='Won'||st==='Dead / Lost')){
+      const hidden = col.filter(l=>_closedDate(l) < cutoff).length;
+      if(!pipeShowAllClosed) col = col.filter(l=>_closedDate(l) >= cutoff);
+      if(hidden) extra = `<div style="text-align:center;margin-top:.3rem"><a href="#" style="font-size:.7rem" onclick="event.preventDefault();pipeShowAllClosed=!pipeShowAllClosed;renderPipe()">${pipeShowAllClosed?'Show last '+PIPE_CLOSED_DAYS+' days only':'Show all ('+hidden+' older)'}</a></div>`;
+    }
+    return _pipeCol(st, esc(st), col, st==='Won'?'background:#2e7d32':st==='Dead / Lost'?'background:#78909c':'', extra);
   }).join('');
+  ge('pl-board').innerHTML = html;
+}
+let _pipeDragId = null;
+function pipeDragStart(e,id){ _pipeDragId=id; e.dataTransfer.effectAllowed='move'; try{e.dataTransfer.setData('text/plain',id);}catch(_e){} e.currentTarget.style.opacity='.5'; }
+function pipeDragEnd(){ _pipeDragId=null; document.querySelectorAll('.pl-card').forEach(c=>c.style.opacity=''); document.querySelectorAll('.pl-body.pl-over').forEach(b=>b.classList.remove('pl-over')); }
+function pipeDragOver(e){ if(!_pipeDragId) return; e.preventDefault(); e.dataTransfer.dropEffect='move'; e.currentTarget.classList.add('pl-over'); }
+function pipeDragLeave(e){ e.currentTarget.classList.remove('pl-over'); }
+function pipeDrop(e){
+  e.preventDefault(); e.currentTarget.classList.remove('pl-over');
+  const id=_pipeDragId; const target=e.currentTarget.dataset.col; pipeDragEnd();
+  if(id) handleLeadMove(id, target);
 }
 
 // ── ALL MEETINGS ──────────────────────────────────────────────────────────
@@ -3496,7 +3561,7 @@ function renderDigest(){
   const overdue = active.filter(l=>l.nextActionDate && l.nextActionDate < t);
   const noAction= active.filter(l=>!l.nextAction);
   const cold    = active.filter(l=>!l.updated || l.updated < d30);
-  const unassign= leads.filter(l=>!l.assigned && l.status==='New');
+  const unassign= leads.filter(l=>!l.assigned && l.status==='New' && !lhPool.has(l.id));
   const newThisWk = leads.filter(l=>l.created && l.created >= wkMon);
   const wonThisWk = leads.filter(l=>l.status==='Won' && l.updated && l.updated >= wkMon);
 
@@ -3647,8 +3712,8 @@ function renderL2B(){
     .sort((a,b)=>(a.closing||'zzz').localeCompare(b.closing||'zzz'));
   const dismissed  = l2bAll.filter(l=>l.dismissed===true);
   const active     = l2bAll.filter(l=>l.dismissed!==true);
-  const unassigned = active.filter(l=>!l.assigned&&l.status==='New');
-  const rest       = active.filter(l=> l.assigned||l.status!=='New');
+  const unassigned = active.filter(l=>!l.assigned&&l.status==='New'&&!lhPool.has(l.id));
+  const rest       = active.filter(l=> l.assigned||l.status!=='New'||lhPool.has(l.id));
 
   if(ge('l2b-new-badge')) ge('l2b-new-badge').textContent = unassigned.length||'';
   if(ge('l2b-all-count')) ge('l2b-all-count').textContent = active.length+' active';
@@ -4538,6 +4603,341 @@ function showLoginFromRecovery(){
 }
 
 // ── AUTH STATE CHANGE + INIT ──────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════
+// LEAD HUNTER POOL · STAGE MOVES · CLOSE · MERGE · HANDOVER
+// Server enforces: pool leads can only be handed over by admins; merge is admin-only;
+// accept/undo of Lead Hunter items = assigned rep or admin. Screen rules below mirror that.
+// ══════════════════════════════════════════════════════════════════════════
+let myTeamName = '';
+let lhPool = new Set();   // lead ids Lead Hunter is still researching
+let lhRecs = {};          // lead id -> [pending recommendation types]
+let lhResearch = {};      // lead id -> open research request {note, requested_by, requested_at}
+const LH_LABEL = '<span style="color:#6a1b9a;font-weight:700"><i class="fa fa-robot me-1"></i>Lead Hunter (researching)</span>';
+const LOSS_REASONS = ['Spec substituted / value-engineered out','Price','Contractor lost the tender',
+  'Project cancelled or stalled','Scope change','Process failure','No response / went cold','Other'];
+
+function amAdmin(){ return _adminEmails.has(sbSession?.user?.email||''); }
+function canMoveLead(l){
+  if(!l || lhPool.has(l.id)) return false;               // pool leads: handover first (admins)
+  return amAdmin() || (!!myTeamName && l.assigned===myTeamName);
+}
+function canCloseLead(l){ return canMoveLead(l) || (lhPool.has(l?.id) && amAdmin()); }
+function canRequestResearch(l){ return !!l && !lhPool.has(l.id) && !['Won','Dead / Lost'].includes(l.status) && (amAdmin() || (!!myTeamName && l.assigned===myTeamName)); }
+function safeUrl(u){ return /^https?:\/\//i.test(u||'') ? u : '#'; }
+
+async function loadLH(){
+  try{
+    const [p, r, rr] = await Promise.all([
+      sb.from('lh_pool').select('lead_id').is('handed_over_at', null),
+      sb.from('lh_recommendations').select('lead_id,recommendation').eq('status','pending'),
+      sb.from('lh_research_requests').select('lead_id,note,requested_by,requested_at').eq('status','open'),
+    ]);
+    lhPool = new Set((p.data||[]).map(x=>x.lead_id));
+    lhRecs = {};
+    (r.data||[]).forEach(x=>{ (lhRecs[x.lead_id] ||= []).push(x.recommendation); });
+    lhResearch = {}; (rr.data||[]).forEach(x=>{ lhResearch[x.lead_id]=x; });
+  }catch(e){ console.error('loadLH', e); }
+}
+// Re-read one lead (and its contacts) from the database after a server-side change
+async function refreshLead(id){
+  const [{data:lr},{data:cr}] = await Promise.all([
+    sb.from('leads').select('data').eq('id',id).maybeSingle(),
+    sb.from('contacts').select('data').eq('lead_id',id),
+  ]);
+  const i = leads.findIndex(x=>x.id===id);
+  if(lr && lr.data && !lr.data.deleted){ if(i>=0) leads[i]=lr.data; else leads.unshift(lr.data); _markSynced('leads',[lr.data]); }
+  else if(i>=0) leads.splice(i,1);
+  contacts = contacts.filter(c=>c.leadId!==id).concat((cr||[]).map(r=>r.data).filter(c=>!c.deleted));
+  _markSynced('contacts', contacts.filter(c=>c.leadId===id));
+  await loadLH();
+}
+function rerenderCurrent(){
+  if(curView==='pipeline') renderPipe();
+  else if(curView==='lead-detail' && curLead) renderLD(curLead);
+  else if(curView==='l2b') renderL2B();
+  else if(curView==='leads') renderLeads();
+}
+
+// ── Toast with Undo ────────────────────────────────────────────────────────
+let _toastTimer=null;
+function showToast(msg, undoFn){
+  _ensureLHModals();
+  let t=ge('bv-toast');
+  if(!t){ t=document.createElement('div'); t.id='bv-toast'; document.body.appendChild(t); }
+  t.innerHTML = `<span>${esc(msg)}</span>${undoFn?'<button id="bv-toast-undo">Undo</button>':''}`;
+  t.style.display='flex';
+  if(undoFn) ge('bv-toast-undo').onclick = async ()=>{ t.style.display='none'; clearTimeout(_toastTimer); await undoFn(); };
+  clearTimeout(_toastTimer); _toastTimer=setTimeout(()=>{ t.style.display='none'; }, undoFn?10000:4000);
+}
+
+// ── Stage change (single-lead save, history + audit) ───────────────────────
+async function setLeadStatus(id, s, extra){
+  const i = leads.findIndex(x=>x.id===id); if(i<0) return false;
+  const prev = JSON.parse(JSON.stringify(leads[i]));
+  const l = leads[i];
+  if(s && s!==l.status){
+    l.statusHistory = [...(l.statusHistory||[]), {date:today(), from:l.status, to:s, by:curUser}];
+    l.status = s;
+  }
+  if(s==='Dead / Lost'){ l.lossReason = extra.lossReason||l.lossReason||null; l.lossNote = extra.lossNote ?? l.lossNote ?? null; }
+  if(extra.assigned!==undefined) l.assigned = extra.assigned;
+  l.updated = nowStr();
+  try{ await sbPut('leads', l); }
+  catch(e){ leads[i]=prev; alert('Could not save: '+(e.message||e)); rerenderCurrent(); return false; }
+  localStorage.setItem('bergvik_leads', JSON.stringify(leads));
+  if(prev.status!==l.status) logAudit('lead', id, l.title||l.client||'', 'stage_change', 'status', prev.status, l.status);
+  if((prev.assigned||'')!==(l.assigned||'')) logAudit('lead', id, l.title||l.client||'', extra.handover?'lead_hunter_handover':'reassign', 'assigned', prev.assigned||'', l.assigned||'');
+  if(extra.handover) await loadLH();
+  rerenderCurrent();
+  if(extra.undo){
+    showToast(extra.handover ? `Handed to ${l.assigned} → ${l.status}` : `Moved to ${l.status}`, async ()=>{
+      const j = leads.findIndex(x=>x.id===id); if(j<0) return;
+      leads[j] = prev;
+      try{ await sbPut('leads', prev); }catch(e){ alert('Undo failed: '+(e.message||e)); return; }
+      logAudit('lead', id, prev.title||'', 'undo', 'status', l.status, prev.status);
+      if(extra.handover){ const {data}=await sb.rpc('lh_pool_add',{p_lead_ids:[id]}); if(data&&data.error) alert(data.error); await loadLH(); }
+      rerenderCurrent();
+    });
+  }
+  return true;
+}
+
+// ── Drag & drop routing ────────────────────────────────────────────────────
+async function handleLeadMove(id, target){
+  const l = leads.find(x=>x.id===id); if(!l) return;
+  const inPool = lhPool.has(id);
+  const from = inPool ? '__LH__' : l.status;
+  if(target===from) return;
+  if(target==='__LH__'){
+    if(!amAdmin()) return alert('Only an admin can send a lead to Lead Hunter.');
+    if(l.assigned) return alert('Only leads without a rep can go to Lead Hunter. Clear "Assigned To" first.');
+    if(['Won','Dead / Lost'].includes(l.status)) return alert('Closed leads cannot go to Lead Hunter.');
+    const {data,error} = await sb.rpc('lh_pool_add',{p_lead_ids:[id]});
+    if(error||data?.error) return alert(error?.message||data.error);
+    await loadLH(); rerenderCurrent();
+    showToast('Sent to Lead Hunter', async ()=>{ await sb.rpc('lh_pool_remove',{p_lead_id:id}); await loadLH(); rerenderCurrent(); });
+    return;
+  }
+  if(inPool){
+    if(!amAdmin()) return alert('Only an admin can hand a Lead Hunter lead over.');
+    if(target==='Dead / Lost') return openCloseLead(id);
+    return openHandover(id, target);
+  }
+  if(!canMoveLead(l)) return alert('You can only move your own leads. Ask an admin to move this one.');
+  if(target==='Dead / Lost') return openCloseLead(id);
+  if(target==='Won' && !confirm('Mark "'+l.title+'" as Won?')) return;
+  await setLeadStatus(id, target, {undo:true});
+}
+
+// ── Modals (built once) ────────────────────────────────────────────────────
+function _ensureLHModals(){
+  if(ge('mCloseLead')) return;
+  const optsLoss = LOSS_REASONS.map(r=>`<option>${esc(r)}</option>`).join('');
+  document.body.insertAdjacentHTML('beforeend', `
+  <style>
+    .pl-sub{font-size:.66rem;color:#78909c;background:#eef2f6;padding:.18rem .8rem;border-left:1px solid #e0e6ee;border-right:1px solid #e0e6ee}
+    .pl-body.pl-over{background:#e3f2fd;outline:2px dashed #1565c0;outline-offset:-4px}
+    .pl-card[draggable="true"]{cursor:grab}
+    .pl-lh{border-left-color:#6a1b9a!important;background:#faf5fc}
+    .lh-badge{display:inline-block;font-size:.6rem;font-weight:700;border-radius:10px;padding:.05rem .4rem;margin-left:.25rem}
+    .lh-ready{background:#e8f5e9;color:#2e7d32} .lh-close{background:#fce4ec;color:#c62828} .lh-rr{background:#e3f2fd;color:#1565c0}
+    #bv-toast{display:none;position:fixed;bottom:1.2rem;left:50%;transform:translateX(-50%);z-index:3000;background:#1a2740;color:#fff;border-radius:8px;padding:.6rem 1rem;font-size:.82rem;gap:1rem;align-items:center;box-shadow:0 4px 16px rgba(0,0,0,.3)}
+    #bv-toast button{background:#ffc107;color:#1a2740;border:none;border-radius:5px;font-weight:700;font-size:.78rem;padding:.2rem .7rem}
+  </style>
+  <div class="modal fade" id="mCloseLead" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h6 class="modal-title"><i class="fa fa-circle-xmark me-2"></i>Close lead</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <div id="cl-title" style="font-weight:600;font-size:.88rem;margin-bottom:.8rem"></div>
+      <label class="form-label">Why is it closed? *</label>
+      <select class="form-select" id="cl-reason"><option value="">— Select reason —</option>${optsLoss}</select>
+      <label class="form-label mt-2">Note <span style="color:#999;font-weight:400">(required for "Other")</span></label>
+      <textarea class="form-control" id="cl-note" rows="2" maxlength="1000" placeholder="e.g. Tender cancelled 12 Nov, no re-issue planned"></textarea>
+      <div id="cl-err" style="display:none;color:#c62828;font-size:.78rem;margin-top:.4rem"></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-sm btn-light" data-bs-dismiss="modal">Cancel</button>
+      <button class="btn btn-sm btn-danger" id="cl-save" onclick="saveCloseLead()"><i class="fa fa-circle-xmark me-1"></i>Close lead</button></div>
+  </div></div></div>
+  <div class="modal fade" id="mMerge" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content">
+    <div class="modal-header"><h6 class="modal-title"><i class="fa fa-code-merge me-2"></i>Merge duplicate lead</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <div style="font-size:.8rem;color:#555;margin-bottom:.6rem">This lead will be merged <b>into</b> the lead you pick. The picked lead keeps its status, rep, priority and comments; empty fields are filled in, text is added underneath, and contacts, meetings and activities move across. This lead is then closed as "merged" (restorable).</div>
+      <div style="background:#fff3e0;border-radius:6px;padding:.5rem .8rem;font-size:.8rem;margin-bottom:.7rem"><b>Duplicate (will be closed):</b> <span id="mg-dup"></span><div id="mg-moves" style="color:#666;font-size:.74rem;margin-top:.15rem"></div></div>
+      <label class="form-label">Merge into (the lead to keep) *</label>
+      <input class="form-control form-control-sm mb-1" id="mg-search" placeholder="Type to filter…" oninput="_mgFill()">
+      <select class="form-select" id="mg-target" size="8"></select>
+      <div id="mg-err" style="display:none;color:#c62828;font-size:.78rem;margin-top:.4rem"></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-sm btn-light" data-bs-dismiss="modal">Cancel</button>
+      <button class="btn btn-sm btn-bv" id="mg-save" onclick="saveMerge()"><i class="fa fa-code-merge me-1"></i>Merge</button></div>
+  </div></div></div>
+  <div class="modal fade" id="mHandover" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header" style="background:#6a1b9a;color:#fff"><h6 class="modal-title"><i class="fa fa-robot me-2"></i>Hand over from Lead Hunter</h6><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <div id="ho-title" style="font-weight:600;font-size:.88rem;margin-bottom:.5rem"></div>
+      <div style="font-size:.8rem;color:#555;margin-bottom:.7rem">Stage after handover: <b id="ho-stage"></b></div>
+      <label class="form-label">Assign to which rep? *</label>
+      <select class="form-select" id="ho-rep"></select>
+      <div id="ho-err" style="display:none;color:#c62828;font-size:.78rem;margin-top:.4rem"></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-sm btn-light" data-bs-dismiss="modal">Cancel</button>
+      <button class="btn btn-sm" style="background:#6a1b9a;color:#fff" onclick="saveHandover()"><i class="fa fa-user-check me-1"></i>Hand over</button></div>
+  </div></div></div>`);
+}
+
+// Close lead
+let _clId=null;
+function openCloseLead(id){
+  const l=leads.find(x=>x.id===id); if(!l) return;
+  if(!canCloseLead(l)) return alert('Only the assigned rep or an admin can close this lead.');
+  _ensureLHModals(); _clId=id;
+  ge('cl-title').textContent=l.title; ge('cl-reason').value=''; ge('cl-note').value=''; ge('cl-err').style.display='none';
+  const rec = (lhRecs[id]||[]).includes('close_lost');
+  if(rec) ge('cl-note').placeholder='Lead Hunter has recommended closing - see the Lead Hunter panel on the lead';
+  bootstrap.Modal.getOrCreateInstance(ge('mCloseLead')).show();
+}
+async function saveCloseLead(){
+  const reason=gv('cl-reason'), note=gv('cl-note').trim(), err=ge('cl-err');
+  if(!reason){ err.textContent='Pick a reason.'; err.style.display='block'; return; }
+  if(reason==='Other' && note.length<5){ err.textContent='Add a short note for "Other".'; err.style.display='block'; return; }
+  const id=_clId, fromPool=lhPool.has(id);
+  bootstrap.Modal.getInstance(ge('mCloseLead'))?.hide();
+  if(fromPool){ const {data}=await sb.rpc('lh_pool_remove',{p_lead_id:id}); if(data?.error) return alert(data.error); await loadLH(); }
+  await setLeadStatus(id, 'Dead / Lost', {lossReason:reason, lossNote:note||null, undo:!fromPool});
+}
+
+// Handover (pool -> rep)
+let _hoId=null, _hoTarget=null;
+function openHandover(id, target){
+  const l=leads.find(x=>x.id===id); if(!l) return;
+  _ensureLHModals(); _hoId=id; _hoTarget=target;
+  ge('ho-title').textContent=l.title; ge('ho-stage').textContent=target; ge('ho-err').style.display='none';
+  ge('ho-rep').innerHTML='<option value="">— Select rep —</option>'+TEAM.map(u=>`<option>${esc(u)}</option>`).join('');
+  bootstrap.Modal.getOrCreateInstance(ge('mHandover')).show();
+}
+async function saveHandover(){
+  const rep=gv('ho-rep'); if(!rep){ ge('ho-err').textContent='Pick a rep.'; ge('ho-err').style.display='block'; return; }
+  bootstrap.Modal.getInstance(ge('mHandover'))?.hide();
+  const target=_hoTarget==='Won'?null:_hoTarget; // never jump straight to Won from research
+  await setLeadStatus(_hoId, target, {assigned:rep, handover:true, undo:true});
+}
+
+// Merge (admin)
+let _mgDup=null;
+function openMerge(id){
+  if(!amAdmin()) return alert('Admins only.');
+  const l=leads.find(x=>x.id===id); if(!l) return;
+  _ensureLHModals(); _mgDup=id;
+  ge('mg-dup').textContent=l.title;
+  const nc=contacts.filter(c=>c.leadId===id).length, nm=meetings.filter(m=>m.leadId===id).length, na=smtgs.filter(m=>m.leadId===id).length;
+  ge('mg-moves').textContent=`Will move: ${nc} contact(s), ${nm} meeting(s), ${na} activit${na===1?'y':'ies'}`;
+  ge('mg-search').value=''; ge('mg-err').style.display='none'; _mgFill();
+  bootstrap.Modal.getOrCreateInstance(ge('mMerge')).show();
+}
+function _mgFill(){
+  const q=gv('mg-search').toLowerCase();
+  const opts=leads.filter(l=>l.id!==_mgDup && (!q || (l.title+' '+(l.client||'')).toLowerCase().includes(q)))
+    .sort((a,b)=>a.title.localeCompare(b.title)).slice(0,300);
+  ge('mg-target').innerHTML=opts.map(l=>`<option value="${esc(l.id)}">${esc(l.title)}${l.client?' — '+esc(l.client):''} [${esc(l.status)}${l.assigned?' · '+esc(l.assigned):''}]</option>`).join('');
+}
+async function saveMerge(){
+  const keep=gv('mg-target'), err=ge('mg-err');
+  if(!keep){ err.textContent='Pick the lead to keep.'; err.style.display='block'; return; }
+  const k=leads.find(x=>x.id===keep), d=leads.find(x=>x.id===_mgDup);
+  if(!confirm(`Merge "${d.title}"\n   INTO\n"${k.title}"?\n\nThe first lead will be closed as merged.`)) return;
+  ge('mg-save').disabled=true;
+  const {data,error}=await sb.rpc('merge_leads',{p_keep:keep, p_dup:_mgDup});
+  ge('mg-save').disabled=false;
+  if(error||data?.error){ err.textContent=error?.message||data.error; err.style.display='block'; return; }
+  bootstrap.Modal.getInstance(ge('mMerge'))?.hide();
+  await loadAll();
+  openLead(keep);
+  showToast(`Merged: ${data.moved_contacts} contact(s), ${data.moved_meetings} meeting(s), ${data.moved_activities} activit(ies) moved`);
+}
+
+// ── Lead Hunter panel on the lead page ─────────────────────────────────────
+const LH_FIELD_LBL={title:'Title',client:'Client',location:'Location',category:'Category',value_bracket:'Value bracket',value_zar:'Value (ZAR)',closing_date:'Closing date',link:'Link',description:'Description',created:'Lead created'};
+const LH_REC_LBL={close_lost:'Close as lost',ready_for_handover:'Ready for handover',stale:'Gone quiet / stale'};
+async function renderLHPanel(id){
+  _ensureLHModals();
+  const l=leads.find(x=>x.id===id); if(!l) return;
+  const [ri, rc, rr, rk] = await Promise.all([
+    sb.from('lh_intel').select('id,summary,source_url,created_at').eq('lead_id',id).order('created_at',{ascending:false}).limit(30),
+    sb.from('lh_changes').select('id,field,old_value,new_value,source_url,created_at,reverted_at,reverted_by').eq('lead_id',id).order('created_at',{ascending:false}).limit(30),
+    sb.from('lh_recommendations').select('id,recommendation,loss_reason,reason,source_url,status,decided_by_name,created_at').eq('lead_id',id).order('created_at',{ascending:false}).limit(10),
+    sb.from('lh_contacts').select('contact_id,verified,verified_by').eq('lead_id',id),
+  ]);
+  if(curLead!==id || curView!=='lead-detail') return;
+  const intel=ri.data||[], chg=rc.data||[], recs=rr.data||[], lcs=rk.data||[];
+  const inPool=lhPool.has(id), admin=amAdmin(), owner=admin||(!!myTeamName&&l.assigned===myTeamName);
+  const rq=lhResearch[id];
+  if(!intel.length && !chg.length && !recs.length && !lcs.length && !inPool && !owner && !rq) return;
+  const fmt=v=>{ if(v===null||v===undefined||v==='') return '—'; const t=typeof v==='string'?v:JSON.stringify(v); return esc(t.length>90?t.slice(0,90)+'…':t); };
+  const dt=s=>new Date(s).toLocaleDateString('en-ZA',{day:'2-digit',month:'short'});
+  const src=u=>`<a href="${esc(safeUrl(u))}" target="_blank" rel="noopener noreferrer" style="font-size:.68rem">source</a>`;
+  const pend=recs.filter(r=>r.status==='pending');
+  const unver=lcs.filter(c=>!c.verified).map(c=>contacts.find(x=>x.id===c.contact_id)).filter(Boolean);
+  let h=`<div class="sc mt-3" id="lh-panel" style="border:1px solid #e1bee7">
+    <div class="sc-hdr" style="background:#faf5fc"><h6 style="color:#6a1b9a"><i class="fa fa-robot me-2"></i>Lead Hunter ${inPool?'<span class="lh-badge" style="background:#f3e5f5;color:#6a1b9a">researching</span>':''}</h6>
+      <div>${admin&&inPool?`<button class="btn btn-sm btn-outline-secondary" onclick="lhPoolRemove('${id}')">Remove from pool</button>`:''}
+      ${admin&&!inPool&&!l.assigned&&!['Won','Dead / Lost'].includes(l.status)?`<button class="btn btn-sm" style="background:#6a1b9a;color:#fff" onclick="handleLeadMove('${id}','__LH__')"><i class="fa fa-robot me-1"></i>Send to Lead Hunter</button>`:''}</div></div>
+    <div style="padding:.7rem .9rem;font-size:.79rem">`;
+  if(rq) h+=`<div style="background:#e3f2fd;border-radius:6px;padding:.45rem .7rem;margin-bottom:.5rem">
+        <b style="color:#1565c0"><i class="fa fa-magnifying-glass me-1"></i>Research requested</b> <span style="color:#999;font-size:.68rem">${esc(rq.requested_by)} · ${dt(rq.requested_at)}</span>
+        ${rq.note?`<div style="color:#444;margin-top:.15rem">${esc(rq.note)}</div>`:''}
+        ${owner?`<div style="margin-top:.3rem"><button class="btn btn-sm btn-light py-0" style="font-size:.7rem" onclick="lhRequestResearch('${id}')">Edit note</button> <button class="btn btn-sm btn-light py-0" style="font-size:.7rem" onclick="lhCancelResearch('${id}')">Cancel request</button></div>`:''}
+      </div>`;
+  else if(canRequestResearch(l)) h+=`<div style="margin-bottom:.5rem"><button class="btn btn-sm btn-outline-primary py-0" style="font-size:.74rem" onclick="lhRequestResearch('${id}')"><i class="fa fa-magnifying-glass me-1"></i>Request research</button> <span style="color:#999;font-size:.7rem">Lead Hunter researches; the lead stays with its rep.</span></div>`;
+  if(pend.length) h+=`<div style="font-size:.67rem;font-weight:700;color:#6a1b9a;margin-bottom:.3rem">RECOMMENDATIONS WAITING</div>`+pend.map(r=>`
+      <div style="background:${r.recommendation==='close_lost'?'#fce4ec':'#e8f5e9'};border-radius:6px;padding:.45rem .7rem;margin-bottom:.4rem">
+        <b>${LH_REC_LBL[r.recommendation]||esc(r.recommendation)}</b>${r.loss_reason?' · '+esc(r.loss_reason):''} <span style="color:#999;font-size:.68rem">${dt(r.created_at)}</span> ${src(r.source_url)}
+        <div style="color:#444;margin-top:.15rem">${esc(r.reason)}</div>
+        ${owner?`<div style="margin-top:.35rem"><button class="btn btn-sm btn-success py-0" onclick="lhDecide(${r.id},true)">Accept</button> <button class="btn btn-sm btn-light py-0" onclick="lhDecide(${r.id},false)">Reject</button></div>`:'<div style="color:#999;font-size:.7rem;margin-top:.2rem">Waiting for the assigned rep or an admin</div>'}
+      </div>`).join('');
+  if(unver.length) h+=`<div style="font-size:.67rem;font-weight:700;color:#6a1b9a;margin:.5rem 0 .3rem">UNVERIFIED CONTACTS FOUND BY LEAD HUNTER</div>`+unver.map(c=>`
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:.25rem 0;border-bottom:1px solid #f5f6f8">
+        <span><b>${esc(c.name)}</b> <span style="color:#888">${esc([c.role,c.company].filter(Boolean).join(' · '))}</span></span>
+        ${owner?`<button class="btn btn-sm btn-outline-success py-0" style="font-size:.7rem" onclick="lhVerify('${esc(c.id)}')" title="I've confirmed these details with the person">Mark verified</button>`:''}
+      </div>`).join('');
+  if(intel.length) h+=`<div style="font-size:.67rem;font-weight:700;color:#6a1b9a;margin:.5rem 0 .3rem">RESEARCH FINDINGS</div>`+intel.map(i=>`
+      <div style="padding:.3rem 0;border-bottom:1px solid #f5f6f8"><span style="color:#999;font-size:.68rem">${dt(i.created_at)}</span> ${esc(i.summary)} ${src(i.source_url)}</div>`).join('');
+  const realChg=chg.filter(c=>c.field!=='created');
+  if(realChg.length) h+=`<div style="font-size:.67rem;font-weight:700;color:#6a1b9a;margin:.5rem 0 .3rem">FIELDS LEAD HUNTER CHANGED</div>`+realChg.map(c=>`
+      <div style="padding:.3rem 0;border-bottom:1px solid #f5f6f8;${c.reverted_at?'opacity:.5':''}">
+        <span style="color:#999;font-size:.68rem">${dt(c.created_at)}</span> <b>${LH_FIELD_LBL[c.field]||esc(c.field)}</b>:
+        <span style="color:#c62828">${fmt(c.old_value)}</span> → <span style="color:#2e7d32">${fmt(c.new_value)}</span> ${src(c.source_url)}
+        ${c.reverted_at?` <i style="font-size:.7rem">(undone by ${esc(c.reverted_by||'')})</i>`:(owner?` <button class="btn btn-sm btn-link py-0" style="font-size:.7rem" onclick="lhRevert(${c.id})">Undo</button>`:'')}
+      </div>`).join('');
+  if(!pend.length && !unver.length && !intel.length && !realChg.length) h+=`<div style="color:#aaa">${inPool?'Lead Hunter is researching this lead. Findings will appear here.':'No Lead Hunter activity on this lead.'}</div>`;
+  h+=`</div></div>`;
+  ge('lh-panel')?.remove();
+  ge('ld-content').insertAdjacentHTML('beforeend', h);
+}
+async function _lhRpc(fn, args){
+  const {data,error}=await sb.rpc(fn,args);
+  if(error||data?.error){ alert(error?.message||data.error); return false; }
+  return true;
+}
+async function lhDecide(recId, accept){
+  const note = accept ? '' : (prompt('Why reject? (optional)')||'');
+  if(await _lhRpc('lh_decide_recommendation',{p_id:recId,p_accept:accept,p_note:note})){ await refreshLead(curLead); renderLD(curLead); }
+}
+async function lhRevert(chgId){ if(!confirm('Undo this Lead Hunter change?')) return; if(await _lhRpc('lh_revert_change',{p_change_id:chgId})){ await refreshLead(curLead); renderLD(curLead); } }
+async function lhVerify(cid){ if(await _lhRpc('lh_verify_contact',{p_contact_id:cid})){ await refreshLead(curLead); renderLD(curLead); } }
+async function lhRequestResearch(id){
+  const cur = lhResearch[id]?.note || '';
+  const note = prompt('What should Lead Hunter find out? (optional)\ne.g. Who is the main contractor? Any consultant names? Is the tender still open?', cur);
+  if(note===null) return;
+  if(await _lhRpc('lh_request_research',{p_lead_id:id,p_note:note})){ await loadLH(); rerenderCurrent(); showToast('Research requested from Lead Hunter'); }
+}
+async function lhCancelResearch(id){
+  if(!confirm('Cancel the research request?')) return;
+  if(await _lhRpc('lh_cancel_research',{p_lead_id:id})){ await loadLH(); rerenderCurrent(); }
+}
+async function lhPoolRemove(id){
+  if(!confirm('Take this lead away from Lead Hunter? It goes back to normal assignment.')) return;
+  if(await _lhRpc('lh_pool_remove',{p_lead_id:id})){ await loadLH(); rerenderCurrent(); }
+}
+
 sb.auth.onAuthStateChange(async (event, session) => {
   sbSession = session;
   if (event === 'PASSWORD_RECOVERY') {
@@ -4553,6 +4953,8 @@ sb.auth.onAuthStateChange(async (event, session) => {
       if (teamData && teamData.length) {
         TEAM = teamData.filter(r => r.active !== false).map(r => r.name);
         _adminEmails = new Set(teamData.filter(r => r.is_admin).map(r => r.email).filter(Boolean));
+        const _me = teamData.find(r => (r.email||'').toLowerCase() === (session.user?.email||'').toLowerCase());
+        myTeamName = _me ? _me.name : '';
       } else { TEAM = [...TEAM_FALLBACK]; }
     } catch(_e) { TEAM = [...TEAM_FALLBACK]; }
     setUserFromSession(session);
