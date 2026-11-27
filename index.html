@@ -431,8 +431,8 @@
           <h6 style="margin:0"><i class="fa fa-clipboard-check me-2"></i>Follow-ups Due</h6>
           <div style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">
             <input type="text" id="fu-q" placeholder="🔍 Search action, person, company…" oninput="renderFollowupsDue()" style="font-size:.79rem;padding:.32rem .6rem;border:1px solid #dde3ec;border-radius:6px;background:#fff;width:230px">
-            <button class="btn btn-sm btn-outline-secondary" onclick="migrateLegacyNextActions()" title="One-time: split old embedded next-actions into their own to-dos"><i class="fa fa-wand-magic-sparkles me-1"></i>Fix legacy follow-ups</button>
-            <label style="font-size:.72rem;color:#999">Owner</label>
+            <button id="fu-fix-btn" class="btn btn-sm btn-outline-secondary" onclick="migrateLegacyNextActions()" title="One-time: split old embedded next-actions into their own to-dos"><i class="fa fa-wand-magic-sparkles me-1"></i>Fix legacy follow-ups</button>
+            <label id="fu-own-lbl" style="font-size:.72rem;color:#999">Owner</label>
             <select id="fu-fasgn" class="form-select form-select-sm" style="width:180px" onchange="renderFollowupsDue()">
               <option value="">All Reps</option>
             </select>
@@ -1694,7 +1694,7 @@ function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(
 function nowStr(){ const d=new Date(); return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds()); }
 function p(n){ return String(n).padStart(2,'0'); }
 function today(){ return nowStr().slice(0,10); }
-function esc(s){ const d=document.createElement('div');d.textContent=s||'';return d.innerHTML; }
+function esc(s){ const d=document.createElement('div');d.textContent=s??'';return d.innerHTML.replace(/"/g,'&quot;').replace(/'/g,'&#39;'); } // also safe inside attributes
 function ge(id){ return document.getElementById(id); }
 // Keep the app fresh: fully remove any old service worker + caches so the app
 // ALWAYS loads the latest code from the network (this kills the stale-version problem).
@@ -1808,7 +1808,7 @@ function populateSel(){
   // Prospect filters
   const prfa=ge('pr-fasgn'); if(prfa){ const cv=prfa.value; prfa.innerHTML='<option value="">All Reps</option>'+TEAM.map(u=>`<option${u===cv?' selected':''}>${esc(u)}</option>`).join(''); }
   // Follow-ups Due: owner filter
-  const fufa=ge('fu-fasgn'); if(fufa){ const cv=fufa.value; fufa.innerHTML='<option value="">All Reps</option>'+TEAM.map(u=>`<option${u===cv?' selected':''}>${esc(u)}</option>`).join(''); }
+  const fufa=ge('fu-fasgn'); if(fufa){ const cv=fufa.value; fufa.innerHTML='<option value="">All Reps</option><option value="__none__"'+(cv==='__none__'?' selected':'')+'>— Unassigned —</option>'+TEAM.map(u=>`<option${u===cv?' selected':''}>${esc(u)}</option>`).join(''); }
   // Prospect modal: assigned
   const mpas=ge('mp-assigned'); if(mpas){ const cv=mpas.value; mpas.innerHTML='<option value="">— Unassigned —</option>'+TEAM.map(u=>`<option${u===cv?' selected':''}>${esc(u)}</option>`).join(''); }
 }
@@ -1852,9 +1852,10 @@ function renderDash(){
   const _lhN = lhPool.size, _lhReady = Object.values(lhRecs).filter(r=>r.includes('ready_for_handover')).length;
   ge('stat-row').innerHTML += `<div class="col-6 col-md-3" onclick="showView('pipeline')" style="cursor:pointer"><div class="stat-card" style="box-shadow:0 1px 4px rgba(0,0,0,.05);border:${_lhReady?'2px solid #6a1b9a':'1px solid #e8edf3'}"><div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div class="stat-n" style="color:#6a1b9a">${_lhN}</div><div class="stat-l">Lead Hunter researching${_lhReady?` · <b>${_lhReady} ready for handover</b>`:''}</div></div><i class="fa fa-robot" style="color:#6a1b9a;opacity:.15;font-size:1.8rem;margin-top:.2rem"></i></div></div></div>`;
 
-  const fups0 = leads.filter(l=>l.nextAction&&l.nextActionDate).map(l=>({label:l.nextAction,sub:l.title,date:l.nextActionDate,type:'lead-na',id:l.id}));
-  const fups1 = meetings.filter(m=>m.nextDate&&m.nextDate>=t&&m.nextAction).map(m=>({label:m.nextAction,sub:m.leadTitle||'',date:m.nextDate,type:'mtg'}));
-  const fups2 = smtgs.filter(m=>m.nextDate&&m.nextDate>=t&&m.nextAction).map(m=>({label:m.nextAction,sub:(m.company||'')+(m.person?' · '+m.person:''),date:m.nextDate,type:'smtg'}));
+  const _fuMine = amAdmin() ? null : (_myName()||curUser||'');
+  const fups0 = leads.filter(l=>l.nextAction&&l.nextActionDate&&(!_fuMine||l.assigned===_fuMine)).map(l=>({label:l.nextAction,sub:l.title,date:l.nextActionDate,type:'lead-na',id:l.id}));
+  const fups1 = meetings.filter(m=>m.nextDate&&m.nextDate>=t&&m.nextAction&&(!_fuMine||m.assignedTo===_fuMine)).map(m=>({label:m.nextAction,sub:m.leadTitle||'',date:m.nextDate,type:'mtg'}));
+  const fups2 = smtgs.filter(m=>m.nextDate&&m.nextDate>=t&&m.nextAction&&(!_fuMine||m.assignedTo===_fuMine)).map(m=>({label:m.nextAction,sub:(m.company||'')+(m.person?' · '+m.person:''),date:m.nextDate,type:'smtg'}));
   const fups = [...fups0,...fups1,...fups2].sort((a,b)=>a.date.localeCompare(b.date)).slice(0,8);
   ge('db-followups').innerHTML = fups.length ? fups.map(f=>{
     const overdue = f.date < t;
@@ -2726,6 +2727,14 @@ function removeAction(id){
 }
 
 // ── FOLLOW-UPS DUE (open next-actions across all activities) ────────────────
+// Admin: open the Follow-ups page filtered to one rep ('' = everyone, '__none__' = unassigned).
+function fuShowRep(rep){
+  if(!amAdmin()) return;
+  if(curView!=='followups') showView('followups');
+  const sel=ge('fu-fasgn'); if(sel) sel.value=rep||'';
+  renderFollowupsDue(); window.scrollTo(0,0);
+}
+(function(){ const st=document.createElement('style'); st.textContent='.fu-chip{font-size:.75rem;padding:.25rem .6rem;border:1px solid #dde3ec;border-radius:999px;background:#fff;cursor:pointer;white-space:nowrap}.fu-chip:hover{background:#f5f7fa}.fu-chip-on{background:#1F4E79;color:#fff;border-color:#1F4E79}.fu-chip-on span{color:#ffcdd2!important}'; document.head.appendChild(st); })();
 function renderFollowupsDue(){
   const t=today();
   const fa=gv('fu-fasgn')||'';
@@ -2748,8 +2757,21 @@ function renderFollowupsDue(){
   });
   // Window: overdue, due today, undated, OR coming up within the next 7 days. Anything further out surfaces as its date approaches.
   const horizon=(()=>{ const d=new Date(t+'T00:00:00Z'); d.setUTCDate(d.getUTCDate()+7); return d.toISOString().slice(0,10); })();
-  // Show ALL open follow-ups; the date colour signals urgency (red = overdue · amber = within 7 days · green = further out).
-  if(fa) rows=rows.filter(m=>(m.assignedTo||'')===fa);
+  // Reps see only their own follow-ups; admins see everyone's, with a per-rep summary to drill into.
+  // (Screen rule only: data access is still flat — see apps/crm.md §3.)
+  const _adm=amAdmin(), _me=_myName()||curUser||'';
+  ['fu-fasgn','fu-own-lbl','fu-fix-btn'].forEach(id=>{ const e=ge(id); if(e) e.style.display=_adm?'':'none'; });
+  if(!_adm) rows=rows.filter(m=>(m.assignedTo||'')===_me);
+  else {
+    const by={}; rows.forEach(m=>{ const r=m.assignedTo||'__none__'; const d=dueOf(m); (by[r]||=({n:0,o:0})).n++; if(d && d<t) by[r].o++; });
+    const chip=(key,label,v)=>`<span class="fu-chip${fa===key?' fu-chip-on':''}" data-rep="${esc(key)}" onclick="fuShowRep(this.dataset.rep)">${esc(label)} <b>${v.n}</b>${v.o?` <span style="color:#c62828">· ${v.o} overdue</span>`:''}</span>`;
+    const tot={n:rows.length,o:rows.filter(m=>{const d=dueOf(m); return d&&d<t;}).length};
+    let bar=ge('fu-reps');
+    if(!bar){ ge('fu-tbody')?.closest('div[style*="overflow-x"]')?.insertAdjacentHTML('beforebegin','<div id="fu-reps" style="display:flex;flex-wrap:wrap;gap:.4rem;padding:.6rem 1rem;border-bottom:1px solid #eef1f5"></div>'); bar=ge('fu-reps'); }
+    if(bar) bar.innerHTML = chip('','Everyone',tot) + Object.entries(by).sort((a,b)=>b[1].o-a[1].o||b[1].n-a[1].n).map(([r,v])=>chip(r, r==='__none__'?'Unassigned':r, v)).join('');
+  }
+  if(!_adm){ const bar=ge('fu-reps'); if(bar) bar.remove(); }
+  if(_adm && fa) rows=rows.filter(m=> fa==='__none__' ? !m.assignedTo : (m.assignedTo||'')===fa);
   if(q) rows=rows.filter(m=>[m.company,m.person,labelOf(m),m.followupNote,m.assignedTo].join(' ').toLowerCase().includes(q));
   rows.sort((a,b)=>(dueOf(a)||'9999-99-99').localeCompare(dueOf(b)||'9999-99-99'));
   const overdueCount=rows.filter(m=>{const d=dueOf(m); return d && d<t;}).length;
@@ -5075,7 +5097,7 @@ function _mdMonday(d){ const x=new Date(d+'T00:00:00Z'); const w=(x.getUTCDay()+
 // Open follow-ups (same definition as the Follow-ups page)
 function _mdFollowups(){
   const rows=smtgs.filter(m=>m && !m.deleted && !m.done && ((catOf(m)==='Activity' && m.done===false) || !!m.nextAction))
-    .map(m=>({due:m.nextAction?(m.nextDate||''):(m.nextDate||m.date||''), rep:m.assignedTo||(Array.isArray(m.by)?m.by[0]:m.by)||'', label:m.nextAction||normType(m.type), who:m.company||''}));
+    .map(m=>({due:m.nextAction?(m.nextDate||''):(m.nextDate||m.date||''), rep:m.assignedTo||'', label:m.nextAction||normType(m.type), who:m.company||''}));
   prospects.forEach(p=>{ if(p && !p.deleted && prospectOpenAction(p).state==='legacy')
     rows.push({due:p.nextActionDate||'', rep:p.assigned||'', label:p.nextAction||'', who:p.company||''}); });
   return rows;
@@ -5141,7 +5163,7 @@ function renderMgmtDash(){
     + card(ready.length,'Ready for handover','Lead Hunter has finished research','#6a1b9a',_mdList('ready','Ready for handover',['Lead','Owner','Status','Closing'],ready.map(_mdLeadRow)))
     + card(recs.length,'Bot recommendations waiting','close / handover / stale','#8e24aa',_mdList('recs','Leads with a Lead Hunter recommendation waiting',['Lead','Owner','Status','Recommendation'],recs.map(l=>({id:l.id,cells:[l.title,lhPool.has(l.id)?'Lead Hunter':(l.assigned||'—'),l.status,(lhRecs[l.id]||[]).map(r=>LH_REC_LBL[r]||r).join(', ')]}))))
     + card(unassigned.length,'Open leads with no rep','not in the Lead Hunter pool',unassigned.length?'#e65100':'#2e7d32',_mdList('unas','Open leads with no rep',['Lead','Owner','Status','Closing'],unassigned.map(_mdLeadRow)))
-    + card(over.length,'Overdue follow-ups',overTxt||'none',over.length?'#c62828':'#2e7d32','onclick="showView(\'followups\')" style="cursor:pointer"')
+    + card(over.length,'Overdue follow-ups',overTxt||'none',over.length?'#c62828':'#2e7d32','onclick="fuShowRep(\'\')" style="cursor:pointer"')
     + `</div>`;
 
   // 2. Pipeline health
@@ -5207,7 +5229,7 @@ function renderMgmtDash(){
       + rowsT.map((x,i)=>`<tr><td style="font-weight:600">${esc(x.r)}</td>
           <td style="text-align:center" ${_mdList('rep'+i,x.r+': open leads',['Lead','Owner','Status','Closing'],x.mine.map(_mdLeadRow))}><u>${x.mine.length}</u></td>
           <td style="text-align:center"><b style="color:${x.pace==null?'#333':x.q>=x.pace?'#2e7d32':'#c62828'}">${x.q}</b>${x.tgtM!=null?` <span style="font-size:.7rem;color:#999">/ ${x.tgtM} target · ${x.pace} by today</span>`:''}</td>
-          <td style="text-align:center;color:${x.over?'#c62828':'#2e7d32'};font-weight:700">${x.over}</td>
+          <td style="text-align:center;color:${x.over?'#c62828':'#2e7d32'};font-weight:700;cursor:pointer" data-rep="${esc(x.r)}" onclick="fuShowRep(this.dataset.rep)" title="Open ${esc(x.r)}'s follow-ups"><u>${x.over}</u></td>
           <td style="text-align:center;color:${x.stuck?'#b45309':'#2e7d32'};font-weight:700">${x.stuck}</td></tr>`).join('')
       + `</tbody></table><div style="font-size:.7rem;color:#999;margin-top:.4rem">Quality meetings = held meetings that pass the capture rules (attendee, client contact, what was discussed, outcome). Monthly target = annual target ÷ 12; green when on pace for today.</div>`
       : '<div style="color:#999;font-size:.8rem">No rep activity yet this month.</div>');
