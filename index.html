@@ -1727,7 +1727,7 @@ function showView(v){
 
 function populateSel(){
   // Status filter
-  const lfs=ge('l-fs'); if(lfs){ const cv=lfs.value; lfs.innerHTML='<option value="">All Statuses</option>'+STATUSES.map(s=>`<option${s===cv?' selected':''}>${s}</option>`).join(''); }
+  const lfs=ge('l-fs'); if(lfs){ const cv=lfs.value; lfs.innerHTML='<option value="">All Statuses</option><option value="__LH__"'+(cv==='__LH__'?' selected':'')+'>Lead Hunter – Researching</option>'+STATUSES.map(s=>`<option${s===cv?' selected':''}>${s}</option>`).join(''); }
   // Assignee filter
   const lfa=ge('l-fa'); if(lfa){ const cv=lfa.value; lfa.innerHTML='<option value="">All Assignees</option>'+TEAM.map(u=>`<option${u===cv?' selected':''}>${esc(u)}</option>`).join(''); }
   // Lead modal assign
@@ -1816,7 +1816,8 @@ function renderLeads(){
   const q=gv('l-q').toLowerCase(), pf=gv('l-fp'), sf=gv('l-fs'), af=gv('l-fa'), vf=gv('l-fv'), t=today();
   let rows = leads.filter(l=>{
     if(pf&&l.priority!==pf) return false;
-    if(sf&&l.status!==sf)   return false;
+    if(sf==='__LH__'){ if(!lhPool.has(l.id)) return false; }
+    else if(sf&&(l.status!==sf||lhPool.has(l.id))) return false; // pool leads only under "Lead Hunter – Researching"
     if(af&&l.assigned!==af) return false;
     if(vf&&l.value!==vf)    return false;
     if(q&&![l.title,l.client,l.location,l.description].join(' ').toLowerCase().includes(q)) return false;
@@ -1828,13 +1829,13 @@ function renderLeads(){
     return `<tr onclick="openLead('${l.id}')">
     <td><span class="pb p-${l.priority}">${l.priority}</span></td>
     <td style="max-width:220px"><div style="font-weight:600">${esc(l.title)}</div><div style="margin-top:.18rem">${ageBadge(l)}</div></td>
-    <td><span class="sb">${esc(l.status)}</span></td>
+    <td>${lhPool.has(l.id)?'<span class="sb" style="background:#f3e5f5;color:#6a1b9a">Researching</span>':`<span class="sb">${esc(l.status)}</span>`}</td>
     <td style="font-size:.77rem;color:#666">${esc(l.category||'—')}</td>
     <td style="font-size:.77rem;color:#555">${esc(l.value||'—')}</td>
     <td style="font-size:.77rem;color:${l.closing&&l.closing<t?'#c62828':'#999'}">${l.closing||'—'}</td>
     <td style="font-size:.77rem;color:${naOverdue?'#c62828':l.nextAction?'#e65100':'#ccc'};font-weight:${l.nextAction?'600':'400'}">${l.nextAction?`<i class="fa fa-arrow-right me-1" style="font-size:.65rem"></i>${esc(l.nextAction)}`:'—'}</td>
     <td style="font-size:.77rem;color:${naOverdue?'#c62828':'#999'};white-space:nowrap">${naOverdue?'⚠ ':''}${l.nextActionDate||'—'}</td>
-    <td style="font-size:.77rem;color:#999">${esc(l.assigned||'—')}</td>
+    <td style="font-size:.77rem;color:#999">${lhPool.has(l.id)?'<span style="color:#6a1b9a"><i class="fa fa-robot me-1"></i>Lead Hunter</span>':esc(l.assigned||'—')}</td>
   </tr>`;}).join('')
   : `<tr><td colspan="8"><div class="es"><i class="fa fa-folder-open"></i>No leads found</div></td></tr>`;
   ge('leads-ftr').textContent = `${rows.length} of ${leads.length} lead${leads.length===1?'':'s'}`;
