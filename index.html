@@ -1348,6 +1348,63 @@ async function fetchQuoteMetrics(yr){
 // Admin set — populated from team.is_admin at login (replaces hardcoded array)
 let _adminEmails = new Set();
 
+// ── VIEW AS USER (admin, read-only preview of a rep's CRM) ─────────────────
+// Everyone can read the same data (RLS), so the difference a rep sees is the
+// screens and "my" filters. Preview swaps the identity the UI uses and blocks
+// every write: table writes and non-read RPCs return a "read-only" error.
+// It never touches the real login and ends on Exit or page reload.
+let _viewAs = null;                                   // {name,email,uid}
+const _VA_READ_RPC = new Set(['get_admin_rep_targets','get_management_data']);
+function _realEmail(){ return sbSession?.user?.email||''; }
+function _effEmail(){ return _viewAs ? (_viewAs.email||'') : _realEmail(); }
+function _effUid(){ return _viewAs ? (_viewAs.uid||null) : (sbSession?.user?.id||null); }
+let _vaNoticeT=null, _vaRevertT=null;
+function _vaNotice(){
+  clearTimeout(_vaNoticeT);
+  _vaNoticeT=setTimeout(()=>{ if(_viewAs) showToast('Not saved: you are viewing as '+_viewAs.name+' (read-only)'); },300);
+  clearTimeout(_vaRevertT);                           // put the screen back to what is really saved
+  _vaRevertT=setTimeout(async()=>{ if(!_viewAs) return; await loadAll(); rerenderCurrent(); },600);
+}
+function _vaFake(){
+  const res={data:null,error:{message:'Read-only: viewing as another user'}};
+  const p=new Proxy(function(){},{ get:(t,k)=> k==='then' ? (a,b)=>Promise.resolve(res).then(a,b) : ()=>p, apply:()=>p });
+  return p;
+}
+(function(){
+  const _from=sb.from.bind(sb), _rpc=sb.rpc.bind(sb);
+  sb.from = t => { const q=_from(t); if(!_viewAs) return q;
+    return new Proxy(q,{ get(o,k){ if(['insert','upsert','update','delete'].includes(k)) return ()=>{ _vaNotice(); return _vaFake(); };
+      const v=o[k]; return typeof v==='function'?v.bind(o):v; } }); };
+  sb.rpc = (fn,args,opts) => { if(_viewAs && !_VA_READ_RPC.has(fn)){ _vaNotice(); return _vaFake(); } return _rpc(fn,args,opts); };
+})();
+function _vaBanner(){
+  let b=ge('va-banner');
+  if(!_viewAs){ if(b) b.remove(); document.body.style.paddingTop=''; return; }
+  if(!b){ b=document.createElement('div'); b.id='va-banner'; document.body.appendChild(b); }
+  b.style.cssText='position:fixed;top:0;left:0;right:0;z-index:3000;background:#e65100;color:#fff;font-size:.82rem;font-weight:600;padding:.45rem 1rem;display:flex;align-items:center;justify-content:center;gap:1rem;box-shadow:0 2px 6px rgba(0,0,0,.2)';
+  b.innerHTML=`<span><i class="fa fa-eye me-2"></i>Viewing as <b>${esc(_viewAs.name)}</b> (read-only, nothing you change is saved)</span><button onclick="exitViewAs()" style="background:#fff;color:#e65100;border:none;border-radius:4px;font-weight:700;font-size:.78rem;padding:.2rem .7rem">Exit</button>`;
+  document.body.style.paddingTop='34px';
+}
+let _admRows=[];
+async function startViewAs(teamId){
+  if(_viewAs || !_adminEmails.has(_realEmail())) return;
+  const r=_admRows.find(x=>String(x.id)===String(teamId));
+  if(!r || r.is_admin || !r.active || !r.user_id) return;
+  const name=r.name, email=r.email||'', uid=r.user_id;
+  logAudit('team', uid||email, name, 'view_as_start');  // logged before writes are blocked
+  _viewAs={name,email,uid};
+  if(typeof _mdClassic!=='undefined') _mdClassic=false;
+  setUserFromSession(sbSession); _vaBanner();
+  showView('dashboard');
+}
+async function exitViewAs(){
+  if(!_viewAs) return;
+  const v=_viewAs; _viewAs=null;
+  logAudit('team', v.uid||v.email, v.name, 'view_as_end');
+  _vaBanner(); setUserFromSession(sbSession);
+  await loadAll(); showView('admin');
+}
+
 // ── CONFIG ────────────────────────────────────────────────────────────────
 const TEAM_FALLBACK = ['Brendan Ferns','Charles Botha','Christine Mayienda','Elmarie Barnard','Jaco Venter','Johan Lindeque','Lanc Pieterse','Marlene McLachlan','Micke Schulz','Ruhan Oosthuizen','SA Sales'];
 let TEAM = [...TEAM_FALLBACK]; // populated from Supabase auth after login
@@ -1574,16 +1631,19 @@ async function loadAll(){
   // Apply auto-assignment rules to any unassigned leads and sync back
   const _unBefore = leads.filter(x=>!x.assigned).length;
   leads.forEach(x=>autoAssign(x));
-  if(leads.filter(x=>!x.assigned).length < _unBefore) save();
+  if(!_viewAs && leads.filter(x=>!x.assigned).length < _unBefore) save();
   // Also cache to localStorage as offline backup
+  if(!_viewAs){
   localStorage.setItem('bergvik_leads',    JSON.stringify(leads));
   localStorage.setItem('bergvik_contacts', JSON.stringify(contacts));
   localStorage.setItem('bergvik_meetings', JSON.stringify(meetings));
   localStorage.setItem('bergvik_smtgs',    JSON.stringify(smtgs));
   localStorage.setItem('bergvik_prospects',JSON.stringify(prospects));
+  }
 }
 
 function save(){
+  if(_viewAs){ _vaNotice(); return; }
   localStorage.setItem('bergvik_leads',    JSON.stringify(leads));
   localStorage.setItem('bergvik_contacts', JSON.stringify(contacts));
   localStorage.setItem('bergvik_meetings', JSON.stringify(meetings));
@@ -1660,10 +1720,10 @@ function sv(id,v){ const e=ge(id); if(e) e.value=v||''; }
 // ── USER ──────────────────────────────────────────────────────────────────
 let curUser = '';
 function setUserFromSession(s){
-  const name = s?.user?.user_metadata?.name || s?.user?.email?.split('@')[0] || 'User';
+  const name = _viewAs ? _viewAs.name : (s?.user?.user_metadata?.name || s?.user?.email?.split('@')[0] || 'User');
   curUser = name;
   if(ge('u-label')) ge('u-label').textContent = name;
-  const isAdmin = _adminEmails.has(s?.user?.email||'');
+  const isAdmin = _adminEmails.has(_viewAs ? (_viewAs.email||'') : (s?.user?.email||''));
   if(ge('nl-admin'))       ge('nl-admin').style.display       = isAdmin ? 'flex' : 'none';
   if(ge('nl-mgmt'))        ge('nl-mgmt').style.display        = isAdmin ? 'flex' : 'none';
   if(ge('nl-rep-targets')) ge('nl-rep-targets').style.display = isAdmin ? 'flex' : 'none';
@@ -1759,6 +1819,7 @@ function renderDash(){
   if(ge('mgmt-dash')) ge('mgmt-dash').style.display = _mgmt ? '' : 'none';
   if(ge('classic-dash')) ge('classic-dash').style.display = _mgmt ? 'none' : '';
   if(_mgmt){ _ensureLHModals(); renderMgmtDash(); return; }
+  if(!amAdmin()) ge('md-back')?.remove();
   if(amAdmin() && ge('stat-row') && !ge('md-back')) ge('classic-dash').insertAdjacentHTML('afterbegin','<div id="md-back" class="mb-2" style="text-align:right"><a href="#" style="font-size:.75rem" onclick="event.preventDefault();_mdClassic=false;renderDash()">Back to management view</a></div>');
   const t=today();
   const highA = leads.filter(l=>l.priority==='HIGH'&&!['Won','Dead / Lost'].includes(l.status));
@@ -3489,7 +3550,7 @@ function backupData(){
 
 function restoreData(input){
   // ── Admin-only guard ─────────────────────────────────────────────────
-  if(!_adminEmails.has(sbSession?.user?.email||'')){
+  if(!amAdmin()){
     alert('Restore is restricted to admins.'); input.value=''; return;
   }
   const file = input.files[0]; if(!file) return;
@@ -3713,7 +3774,7 @@ function renderDigest(){
 let _assignL2BId = null;
 
 function renderL2B(){
-  const isAdmin = _adminEmails.has(sbSession?.user?.email||'');
+  const isAdmin = amAdmin();
   const l2bAll  = leads.filter(l=>l.source==='L2B Weekly Report')
     .sort((a,b)=>(a.closing||'zzz').localeCompare(b.closing||'zzz'));
   const dismissed  = l2bAll.filter(l=>l.dismissed===true);
@@ -3898,12 +3959,13 @@ async function renderGoals(){
   ge('goals-content').innerHTML = '<div class="es"><i class="fa fa-spinner fa-spin me-2"></i>Loading…</div>';
   const [qm, _rtr] = await Promise.all([
     fetchQuoteMetrics(yr),
-    sb.from('rep_targets').select('metric,target_value').eq('year', yr),
+    _viewAs ? sb.rpc('get_admin_rep_targets',{p_year:yr}).then(r=>({data:(Array.isArray(r.data)?r.data:[]).filter(x=>x.rep_user_id===_viewAs.uid)}))
+            : sb.from('rep_targets').select('metric,target_value').eq('year', yr),
   ]);
   // RLS scopes rep_targets to the current user — no extra filter needed.
   const myTgt = {};
   (_rtr.data || []).forEach(r => { myTgt[r.metric] = Number(r.target_value); });
-  const myAct = repActuals(sbSession?.user?.id, curUser, yr);
+  const myAct = repActuals(_effUid(), curUser, yr);
 
   const qProposalsSent = (qm && qm.proposalsSent != null) ? qm.proposalsSent : null;
   const qProjectsWon   = (qm && qm.projectsWon   != null) ? qm.projectsWon   : null;
@@ -4180,22 +4242,23 @@ async function saveRepTargets(yr){
 async function renderAdmin(){
   const el = ge('admin-content');
   if(!el) return;
-  if(!_adminEmails.has(sbSession?.user?.email||'')){
+  if(!amAdmin()){
     el.innerHTML='<div class="es"><i class="fa fa-lock me-2" style="color:#c62828"></i>Access restricted to administrators.</div>';
     return;
   }
   el.innerHTML='<div class="es"><i class="fa fa-spinner fa-spin me-2"></i>Loading…</div>';
-  const { data: rows, error } = await sb.from('team').select('id,name,email,active,is_admin').order('name');
+  const { data: rows, error } = await sb.from('team').select('id,name,email,active,is_admin,user_id').order('name');
   if(error || !rows){
     el.innerHTML='<div class="es"><i class="fa fa-exclamation-circle me-2" style="color:#c62828"></i>Failed to load team data.</div>';
     return;
   }
+  _admRows=rows;
   const badge=(on,lo,lf,c)=>`<span style="display:inline-block;padding:.18rem .6rem;border-radius:999px;font-size:.72rem;font-weight:700;background:${on?c+'22':'#f5f5f5'};color:${on?c:'#999'};border:1px solid ${on?c+'55':'#ddd'}">${on?lo:lf}</span>`;
   const rows_html=rows.map(r=>{
     const isSelf=(r.email||'')===(sbSession?.user?.email||'');
-    return `<tr><td style="font-weight:600;font-size:.85rem">${esc(r.name)}</td><td style="font-size:.8rem;color:#555">${esc(r.email||'—')}</td><td style="text-align:center">${badge(r.active,'Active','Inactive','#2e7d32')}</td><td style="text-align:center">${badge(r.is_admin,'Admin','Rep','#1F4E79')}</td><td style="text-align:right"><button class="btn btn-sm" style="font-size:.74rem;padding:.2rem .6rem;background:#f5f7fa;border:1px solid #ddd;color:#333" onclick="openAdminMemberEdit('${r.id}','${esc(r.name)}','${esc(r.email||'')}',${r.active},${r.is_admin},${isSelf})"><i class="fa fa-pencil-alt me-1"></i>Edit</button></td></tr>`;
+    return `<tr><td style="font-weight:600;font-size:.85rem">${esc(r.name)}</td><td style="font-size:.8rem;color:#555">${esc(r.email||'—')}</td><td style="text-align:center">${badge(r.active,'Active','Inactive','#2e7d32')}</td><td style="text-align:center">${badge(r.is_admin,'Admin','Rep','#1F4E79')}</td><td style="text-align:right"><button class="btn btn-sm" style="font-size:.74rem;padding:.2rem .6rem;background:#f5f7fa;border:1px solid #ddd;color:#333" onclick="openAdminMemberEdit('${r.id}','${esc(r.name)}','${esc(r.email||'')}',${r.active},${r.is_admin},${isSelf})"><i class="fa fa-pencil-alt me-1"></i>Edit</button>${(r.active && !r.is_admin && r.user_id && r.name!=='Lead Hunter')?`<button class="btn btn-sm ms-1" title="See the CRM exactly as ${esc(r.name)} sees it (read-only)" style="font-size:.74rem;padding:.2rem .6rem;background:#fff3e0;border:1px solid #ffb74d;color:#e65100" onclick="startViewAs('${esc(r.id)}')"><i class="fa fa-eye me-1"></i>View as</button>`:''}</td></tr>`;
   }).join('');
-  el.innerHTML=`<div class="sc mb-3"><div class="sc-hdr" style="display:flex;justify-content:space-between;align-items:center"><h6 style="margin:0"><i class="fa fa-users me-2" style="color:#1F4E79"></i>Team Members</h6><div style="display:flex;align-items:center;gap:.5rem"><span style="font-size:.76rem;color:#888">${rows.length} member${rows.length!==1?'s':''}</span><button class="btn btn-sm" style="font-size:.74rem;padding:.2rem .65rem;background:#1F4E79;color:#fff;border:none" onclick="openAddMember()"><i class="fa fa-plus me-1"></i>Add Member</button></div></div><div style="overflow-x:auto"><table class="ct" style="min-width:560px"><thead><tr><th>Name</th><th>Email</th><th style="text-align:center">Status</th><th style="text-align:center">Role</th><th style="width:70px"></th></tr></thead><tbody>${rows_html}</tbody></table></div></div>
+  el.innerHTML=`<div class="sc mb-3"><div class="sc-hdr" style="display:flex;justify-content:space-between;align-items:center"><h6 style="margin:0"><i class="fa fa-users me-2" style="color:#1F4E79"></i>Team Members</h6><div style="display:flex;align-items:center;gap:.5rem"><span style="font-size:.76rem;color:#888">${rows.length} member${rows.length!==1?'s':''}</span><button class="btn btn-sm" style="font-size:.74rem;padding:.2rem .65rem;background:#1F4E79;color:#fff;border:none" onclick="openAddMember()"><i class="fa fa-plus me-1"></i>Add Member</button></div></div><div style="overflow-x:auto"><table class="ct" style="min-width:560px"><thead><tr><th>Name</th><th>Email</th><th style="text-align:center">Status</th><th style="text-align:center">Role</th><th style="width:170px"></th></tr></thead><tbody>${rows_html}</tbody></table></div></div>
 <div class="modal" id="mAddMember" tabindex="-1"><div class="modal-dialog modal-dialog-centered" style="max-width:380px"><div class="modal-content"><div class="modal-header" style="background:#1F4E79;color:#fff;padding:.75rem 1rem"><h6 class="modal-title"><i class="fa fa-user-plus me-2"></i>Add Team Member</h6><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div><div class="modal-body" style="padding:1.2rem"><div class="mb-3"><label class="form-label" style="font-weight:700;font-size:.82rem">Full Name <span style="color:#c62828">*</span></label><input type="text" id="add-mname" class="form-control form-control-sm" placeholder="e.g. Jane Smith"></div><div class="mb-3"><label class="form-label" style="font-weight:700;font-size:.82rem">Email Address <span style="color:#c62828">*</span></label><input type="email" id="add-memail" class="form-control form-control-sm" placeholder="jane@bergvik.com"></div><div class="mb-3"><label class="form-label" style="font-weight:700;font-size:.82rem">Account Status</label><div style="display:flex;gap:.5rem"><button id="add-btn-active" class="btn btn-sm" style="flex:1" onclick="addSetActive(true)"><i class="fa fa-check-circle me-1"></i>Active</button><button id="add-btn-inactive" class="btn btn-sm" style="flex:1" onclick="addSetActive(false)"><i class="fa fa-ban me-1"></i>Inactive</button></div></div><div class="mb-3"><label class="form-label" style="font-weight:700;font-size:.82rem">Role</label><div style="display:flex;gap:.5rem"><button id="add-btn-admin" class="btn btn-sm" style="flex:1" onclick="addSetAdmin(true)"><i class="fa fa-user-shield me-1"></i>Admin</button><button id="add-btn-rep" class="btn btn-sm" style="flex:1" onclick="addSetAdmin(false)"><i class="fa fa-user me-1"></i>Rep</button></div></div><div id="add-merr" style="display:none;color:#c62828;font-size:.78rem;margin-top:.5rem"></div></div><div class="modal-footer" style="padding:.65rem 1rem"><button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" id="add-msave" class="btn btn-sm" style="background:#1F4E79;color:#fff" onclick="saveAddMember()"><i class="fa fa-user-plus me-1"></i>Add Member</button></div></div></div></div><div class="modal" id="mAdminMember" tabindex="-1"><div class="modal-dialog modal-dialog-centered" style="max-width:380px"><div class="modal-content"><div class="modal-header" style="background:#1F4E79;color:#fff;padding:.75rem 1rem"><h6 class="modal-title"><i class="fa fa-user-cog me-2"></i>Edit Team Member</h6><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div><div class="modal-body" style="padding:1.2rem"><input type="hidden" id="adm-mid"><div class="mb-3"><label class="form-label" style="font-weight:700;font-size:.82rem">Full Name</label><input type="text" id="adm-mname" class="form-control form-control-sm"></div><div class="mb-3"><label class="form-label" style="font-weight:700;font-size:.82rem">Email Address</label><input type="email" id="adm-memail" class="form-control form-control-sm"></div><div class="mb-3"><label class="form-label" style="font-weight:700;font-size:.82rem">Account Status</label><div style="display:flex;gap:.5rem"><button id="adm-btn-active" class="btn btn-sm" style="flex:1" onclick="admSetActive(true)"><i class="fa fa-check-circle me-1"></i>Active</button><button id="adm-btn-inactive" class="btn btn-sm" style="flex:1" onclick="admSetActive(false)"><i class="fa fa-ban me-1"></i>Inactive</button></div></div><div class="mb-3" id="adm-role-row"><label class="form-label" style="font-weight:700;font-size:.82rem">Role</label><div style="display:flex;gap:.5rem"><button id="adm-btn-admin" class="btn btn-sm" style="flex:1" onclick="admSetAdmin(true)"><i class="fa fa-user-shield me-1"></i>Admin</button><button id="adm-btn-rep" class="btn btn-sm" style="flex:1" onclick="admSetAdmin(false)"><i class="fa fa-user me-1"></i>Rep</button></div></div><div id="adm-merr" style="display:none;color:#c62828;font-size:.78rem;margin-top:.5rem"></div></div><div class="modal-footer" style="padding:.65rem 1rem"><button type="button" id="adm-mremove" class="btn btn-sm" style="background:#c62828;color:#fff;margin-right:auto" onclick="removeAdminMember()"><i class="fa fa-trash me-1"></i>Remove</button><button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" id="adm-msave" class="btn btn-sm" style="background:#1F4E79;color:#fff" onclick="saveAdminMember()"><i class="fa fa-save me-1"></i>Save Changes</button></div></div></div></div>`;
 }
 let _admEdit={};
@@ -4615,6 +4678,7 @@ function showLoginFromRecovery(){
 // accept/undo of Lead Hunter items = assigned rep or admin. Screen rules below mirror that.
 // ══════════════════════════════════════════════════════════════════════════
 let myTeamName = '';
+function _myName(){ return _viewAs ? _viewAs.name : myTeamName; }
 let lhPool = new Set();   // lead ids Lead Hunter is still researching
 let lhRecs = {};          // lead id -> [pending recommendation types]
 let lhResearch = {};      // lead id -> open research request {note, requested_by, requested_at}
@@ -4632,13 +4696,13 @@ const RESEARCH_OPTS = [
 const LOSS_REASONS = ['Spec substituted / value-engineered out','Price','Contractor lost the tender',
   'Project cancelled or stalled','Scope change','Process failure','No response / went cold','Other'];
 
-function amAdmin(){ return _adminEmails.has(sbSession?.user?.email||''); }
+function amAdmin(){ return _adminEmails.has(_effEmail()); }
 function canMoveLead(l){
   if(!l || lhPool.has(l.id)) return false;               // pool leads: handover first (admins)
-  return amAdmin() || (!!myTeamName && l.assigned===myTeamName);
+  return amAdmin() || (!!_myName() && l.assigned===_myName());
 }
 function canCloseLead(l){ return canMoveLead(l) || (lhPool.has(l?.id) && amAdmin()); }
-function canRequestResearch(l){ return !!l && !lhPool.has(l.id) && !['Won','Dead / Lost'].includes(l.status) && (amAdmin() || (!!myTeamName && l.assigned===myTeamName)); }
+function canRequestResearch(l){ return !!l && !lhPool.has(l.id) && !['Won','Dead / Lost'].includes(l.status) && (amAdmin() || (!!_myName() && l.assigned===_myName())); }
 function safeUrl(u){ return /^https?:\/\//i.test(u||'') ? u : '#'; }
 
 async function loadLH(){
@@ -4903,7 +4967,7 @@ async function renderLHPanel(id){
   ]);
   if(curLead!==id || curView!=='lead-detail') return;
   const intel=ri.data||[], chg=rc.data||[], recs=rr.data||[], lcs=rk.data||[];
-  const inPool=lhPool.has(id), admin=amAdmin(), owner=admin||(!!myTeamName&&l.assigned===myTeamName);
+  const inPool=lhPool.has(id), admin=amAdmin(), owner=admin||(!!_myName()&&l.assigned===_myName());
   const rq=lhResearch[id];
   if(!intel.length && !chg.length && !recs.length && !lcs.length && !inPool && !owner && !rq) return;
   const fmt=v=>{ if(v===null||v===undefined||v==='') return '—'; const t=typeof v==='string'?v:JSON.stringify(v); return esc(t.length>90?t.slice(0,90)+'…':t); };
