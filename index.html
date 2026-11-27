@@ -1858,6 +1858,7 @@ function renderLD(id){
           <div>
             <button class="btn btn-sm btn-bv me-1" onclick="openLeadModal('${l.id}')"><i class="fa fa-pen me-1"></i>Edit</button>
             ${!['Won','Dead / Lost'].includes(l.status)&&canCloseLead(l)?`<button class="btn btn-sm btn-outline-secondary me-1" onclick="openCloseLead('${l.id}')" title="Close this lead as lost / no longer viable"><i class="fa fa-circle-xmark me-1"></i>Close</button>`:''}
+            ${canRequestResearch(l)&&!lhResearch[l.id]?`<button class="btn btn-sm btn-outline-secondary me-1" onclick="lhRequestResearch('${l.id}')" title="Ask Lead Hunter to research this lead - it stays with its rep"><i class="fa fa-magnifying-glass me-1"></i>Research</button>`:''}
             ${amAdmin()?`<button class="btn btn-sm btn-outline-secondary me-1" onclick="openMerge('${l.id}')" title="This is the same project as another lead"><i class="fa fa-code-merge me-1"></i>Merge</button>`:''}
             <button class="btn btn-sm btn-outline-danger" onclick="confirmDel('lead','${l.id}')"><i class="fa fa-trash"></i></button>
           </div>
@@ -2014,6 +2015,7 @@ function _pipeCard(l, inPool){
       <span class="pb p-${l.priority}" style="font-size:.61rem">${l.priority}</span>
       ${recs.includes('ready_for_handover')?'<span class="lh-badge lh-ready"><i class="fa fa-flag-checkered me-1"></i>Ready for handover</span>':''}
       ${recs.includes('close_lost')?'<span class="lh-badge lh-close"><i class="fa fa-circle-xmark me-1"></i>Bot suggests close</span>':''}
+      ${lhResearch[l.id]?'<span class="lh-badge lh-rr"><i class="fa fa-magnifying-glass me-1"></i>Research requested</span>':''}
       <div style="font-size:.78rem;font-weight:600;line-height:1.35;color:#222;margin-top:.25rem">${esc(l.title.length>52?l.title.slice(0,52)+'…':l.title)}</div>
       ${l.client?`<div style="font-size:.69rem;color:#777;margin-top:.15rem"><i class="fa fa-building me-1"></i>${esc(l.client.slice(0,40))}</div>`:''}
       ${l.location?`<div style="font-size:.69rem;color:#bbb;margin-top:.2rem"><i class="fa fa-map-marker-alt me-1"></i>${esc(l.location.slice(0,48))}</div>`:''}
@@ -4609,6 +4611,7 @@ function showLoginFromRecovery(){
 let myTeamName = '';
 let lhPool = new Set();   // lead ids Lead Hunter is still researching
 let lhRecs = {};          // lead id -> [pending recommendation types]
+let lhResearch = {};      // lead id -> open research request {note, requested_by, requested_at}
 const LH_LABEL = '<span style="color:#6a1b9a;font-weight:700"><i class="fa fa-robot me-1"></i>Lead Hunter (researching)</span>';
 const LOSS_REASONS = ['Spec substituted / value-engineered out','Price','Contractor lost the tender',
   'Project cancelled or stalled','Scope change','Process failure','No response / went cold','Other'];
@@ -4619,17 +4622,20 @@ function canMoveLead(l){
   return amAdmin() || (!!myTeamName && l.assigned===myTeamName);
 }
 function canCloseLead(l){ return canMoveLead(l) || (lhPool.has(l?.id) && amAdmin()); }
+function canRequestResearch(l){ return !!l && !lhPool.has(l.id) && !['Won','Dead / Lost'].includes(l.status) && (amAdmin() || (!!myTeamName && l.assigned===myTeamName)); }
 function safeUrl(u){ return /^https?:\/\//i.test(u||'') ? u : '#'; }
 
 async function loadLH(){
   try{
-    const [p, r] = await Promise.all([
+    const [p, r, rr] = await Promise.all([
       sb.from('lh_pool').select('lead_id').is('handed_over_at', null),
       sb.from('lh_recommendations').select('lead_id,recommendation').eq('status','pending'),
+      sb.from('lh_research_requests').select('lead_id,note,requested_by,requested_at').eq('status','open'),
     ]);
     lhPool = new Set((p.data||[]).map(x=>x.lead_id));
     lhRecs = {};
     (r.data||[]).forEach(x=>{ (lhRecs[x.lead_id] ||= []).push(x.recommendation); });
+    lhResearch = {}; (rr.data||[]).forEach(x=>{ lhResearch[x.lead_id]=x; });
   }catch(e){ console.error('loadLH', e); }
 }
 // Re-read one lead (and its contacts) from the database after a server-side change
@@ -4734,7 +4740,7 @@ function _ensureLHModals(){
     .pl-card[draggable="true"]{cursor:grab}
     .pl-lh{border-left-color:#6a1b9a!important;background:#faf5fc}
     .lh-badge{display:inline-block;font-size:.6rem;font-weight:700;border-radius:10px;padding:.05rem .4rem;margin-left:.25rem}
-    .lh-ready{background:#e8f5e9;color:#2e7d32} .lh-close{background:#fce4ec;color:#c62828}
+    .lh-ready{background:#e8f5e9;color:#2e7d32} .lh-close{background:#fce4ec;color:#c62828} .lh-rr{background:#e3f2fd;color:#1565c0}
     #bv-toast{display:none;position:fixed;bottom:1.2rem;left:50%;transform:translateX(-50%);z-index:3000;background:#1a2740;color:#fff;border-radius:8px;padding:.6rem 1rem;font-size:.82rem;gap:1rem;align-items:center;box-shadow:0 4px 16px rgba(0,0,0,.3)}
     #bv-toast button{background:#ffc107;color:#1a2740;border:none;border-radius:5px;font-weight:700;font-size:.78rem;padding:.2rem .7rem}
   </style>
@@ -4863,7 +4869,8 @@ async function renderLHPanel(id){
   if(curLead!==id || curView!=='lead-detail') return;
   const intel=ri.data||[], chg=rc.data||[], recs=rr.data||[], lcs=rk.data||[];
   const inPool=lhPool.has(id), admin=amAdmin(), owner=admin||(!!myTeamName&&l.assigned===myTeamName);
-  if(!intel.length && !chg.length && !recs.length && !lcs.length && !inPool && !admin) return;
+  const rq=lhResearch[id];
+  if(!intel.length && !chg.length && !recs.length && !lcs.length && !inPool && !owner && !rq) return;
   const fmt=v=>{ if(v===null||v===undefined||v==='') return '—'; const t=typeof v==='string'?v:JSON.stringify(v); return esc(t.length>90?t.slice(0,90)+'…':t); };
   const dt=s=>new Date(s).toLocaleDateString('en-ZA',{day:'2-digit',month:'short'});
   const src=u=>`<a href="${esc(safeUrl(u))}" target="_blank" rel="noopener noreferrer" style="font-size:.68rem">source</a>`;
@@ -4874,6 +4881,12 @@ async function renderLHPanel(id){
       <div>${admin&&inPool?`<button class="btn btn-sm btn-outline-secondary" onclick="lhPoolRemove('${id}')">Remove from pool</button>`:''}
       ${admin&&!inPool&&!l.assigned&&!['Won','Dead / Lost'].includes(l.status)?`<button class="btn btn-sm" style="background:#6a1b9a;color:#fff" onclick="handleLeadMove('${id}','__LH__')"><i class="fa fa-robot me-1"></i>Send to Lead Hunter</button>`:''}</div></div>
     <div style="padding:.7rem .9rem;font-size:.79rem">`;
+  if(rq) h+=`<div style="background:#e3f2fd;border-radius:6px;padding:.45rem .7rem;margin-bottom:.5rem">
+        <b style="color:#1565c0"><i class="fa fa-magnifying-glass me-1"></i>Research requested</b> <span style="color:#999;font-size:.68rem">${esc(rq.requested_by)} · ${dt(rq.requested_at)}</span>
+        ${rq.note?`<div style="color:#444;margin-top:.15rem">${esc(rq.note)}</div>`:''}
+        ${owner?`<div style="margin-top:.3rem"><button class="btn btn-sm btn-light py-0" style="font-size:.7rem" onclick="lhRequestResearch('${id}')">Edit note</button> <button class="btn btn-sm btn-light py-0" style="font-size:.7rem" onclick="lhCancelResearch('${id}')">Cancel request</button></div>`:''}
+      </div>`;
+  else if(canRequestResearch(l)) h+=`<div style="margin-bottom:.5rem"><button class="btn btn-sm btn-outline-primary py-0" style="font-size:.74rem" onclick="lhRequestResearch('${id}')"><i class="fa fa-magnifying-glass me-1"></i>Request research</button> <span style="color:#999;font-size:.7rem">Lead Hunter researches; the lead stays with its rep.</span></div>`;
   if(pend.length) h+=`<div style="font-size:.67rem;font-weight:700;color:#6a1b9a;margin-bottom:.3rem">RECOMMENDATIONS WAITING</div>`+pend.map(r=>`
       <div style="background:${r.recommendation==='close_lost'?'#fce4ec':'#e8f5e9'};border-radius:6px;padding:.45rem .7rem;margin-bottom:.4rem">
         <b>${LH_REC_LBL[r.recommendation]||esc(r.recommendation)}</b>${r.loss_reason?' · '+esc(r.loss_reason):''} <span style="color:#999;font-size:.68rem">${dt(r.created_at)}</span> ${src(r.source_url)}
@@ -4910,6 +4923,16 @@ async function lhDecide(recId, accept){
 }
 async function lhRevert(chgId){ if(!confirm('Undo this Lead Hunter change?')) return; if(await _lhRpc('lh_revert_change',{p_change_id:chgId})){ await refreshLead(curLead); renderLD(curLead); } }
 async function lhVerify(cid){ if(await _lhRpc('lh_verify_contact',{p_contact_id:cid})){ await refreshLead(curLead); renderLD(curLead); } }
+async function lhRequestResearch(id){
+  const cur = lhResearch[id]?.note || '';
+  const note = prompt('What should Lead Hunter find out? (optional)\ne.g. Who is the main contractor? Any consultant names? Is the tender still open?', cur);
+  if(note===null) return;
+  if(await _lhRpc('lh_request_research',{p_lead_id:id,p_note:note})){ await loadLH(); rerenderCurrent(); showToast('Research requested from Lead Hunter'); }
+}
+async function lhCancelResearch(id){
+  if(!confirm('Cancel the research request?')) return;
+  if(await _lhRpc('lh_cancel_research',{p_lead_id:id})){ await loadLH(); rerenderCurrent(); }
+}
 async function lhPoolRemove(id){
   if(!confirm('Take this lead away from Lead Hunter? It goes back to normal assignment.')) return;
   if(await _lhRpc('lh_pool_remove',{p_lead_id:id})){ await loadLH(); rerenderCurrent(); }
