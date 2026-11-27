@@ -279,6 +279,8 @@
 
     <!-- DASHBOARD -->
     <div class="view active" id="view-dashboard">
+      <div id="mgmt-dash" style="display:none"></div>
+      <div id="classic-dash">
       <div class="row g-3 mb-3" id="stat-row"></div>
       <div class="row g-3">
         <div class="col-12 col-xl-7">
@@ -300,6 +302,7 @@
             <div id="db-recent" style="padding:.4rem .6rem"></div>
           </div>
         </div>
+      </div>
       </div>
     </div>
 
@@ -1752,6 +1755,11 @@ function populateSel(){
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────
 function renderDash(){
+  const _mgmt = amAdmin() && !_mdClassic;
+  if(ge('mgmt-dash')) ge('mgmt-dash').style.display = _mgmt ? '' : 'none';
+  if(ge('classic-dash')) ge('classic-dash').style.display = _mgmt ? 'none' : '';
+  if(_mgmt){ _ensureLHModals(); renderMgmtDash(); return; }
+  if(amAdmin() && ge('stat-row') && !ge('md-back')) ge('classic-dash').insertAdjacentHTML('afterbegin','<div id="md-back" class="mb-2" style="text-align:right"><a href="#" style="font-size:.75rem" onclick="event.preventDefault();_mdClassic=false;renderDash()">Back to management view</a></div>');
   const t=today();
   const highA = leads.filter(l=>l.priority==='HIGH'&&!['Won','Dead / Lost'].includes(l.status));
   ge('stat-row').innerHTML = [
@@ -4750,6 +4758,12 @@ function _ensureLHModals(){
     .lh-badge{display:inline-block;font-size:.6rem;font-weight:700;border-radius:10px;padding:.05rem .4rem;margin-left:.25rem}
     .lh-ready{background:#e8f5e9;color:#2e7d32} .lh-close{background:#fce4ec;color:#c62828} .lh-rr{background:#e3f2fd;color:#1565c0}
     #bv-toast{display:none;position:fixed;bottom:1.2rem;left:50%;transform:translateX(-50%);z-index:3000;background:#1a2740;color:#fff;border-radius:8px;padding:.6rem 1rem;font-size:.82rem;gap:1rem;align-items:center;box-shadow:0 4px 16px rgba(0,0,0,.3)}
+    .md-card{box-shadow:0 1px 4px rgba(0,0,0,.05)} .md-card:hover{box-shadow:0 3px 10px rgba(0,0,0,.12)}
+    .md-bar{display:flex;align-items:center;gap:.5rem;padding:.22rem 0;cursor:pointer;font-size:.78rem}
+    .md-bar:hover{background:#f5f7fa} .md-bar-lbl{width:34%;color:#444;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .md-bar-track{flex:1;background:#eef2f6;border-radius:4px;height:12px;overflow:hidden} .md-bar-fill{height:100%;border-radius:4px}
+    .md-bar-n{width:2.2rem;text-align:right;font-weight:700;color:#333}
+    .md-pill{background:#f5f7fa;border:1px solid #e0e6ee;border-radius:8px;padding:.35rem .7rem;cursor:pointer} .md-pill:hover{background:#eef2f6}
     #bv-toast button{background:#ffc107;color:#1a2740;border:none;border-radius:5px;font-weight:700;font-size:.78rem;padding:.2rem .7rem}
   </style>
   <div class="modal fade" id="mCloseLead" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
@@ -4978,6 +4992,165 @@ async function lhPoolRemove(id){
   if(await _lhRpc('lh_pool_remove',{p_lead_id:id})){ await loadLH(); rerenderCurrent(); }
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// MANAGEMENT DASHBOARD (admins: Lanc, Jaco). Reps keep the classic dashboard.
+// Uses the same rules as Goals/Management: catOf() + meetingIssues() for quality
+// meetings, open Activities for follow-ups, rep targets from get_admin_rep_targets.
+// ══════════════════════════════════════════════════════════════════════════
+let _mdClassic = false;           // admin toggle: show the classic dashboard instead
+let _mdTargets = null;            // {repName: annual meetings target}
+const MD_OPEN = s => !['Won','Dead / Lost'].includes(s);
+function _mdDate(s){              // normalise 'dd-mm-yyyy' / 'yyyy-mm-dd hh:mm' -> 'yyyy-mm-dd'
+  s=String(s||'').trim(); let m;
+  if((m=s.match(/^(\d{2})-(\d{2})-(\d{4})/))) return `${m[3]}-${m[2]}-${m[1]}`;
+  if((m=s.match(/^(\d{4})-(\d{2})-(\d{2})/))) return `${m[1]}-${m[2]}-${m[3]}`;
+  return '';
+}
+function _mdAddDays(d,n){ const x=new Date(d+'T00:00:00Z'); x.setUTCDate(x.getUTCDate()+n); return x.toISOString().slice(0,10); }
+function _mdMonday(d){ const x=new Date(d+'T00:00:00Z'); const w=(x.getUTCDay()+6)%7; x.setUTCDate(x.getUTCDate()-w); return x.toISOString().slice(0,10); }
+// Open follow-ups (same definition as the Follow-ups page)
+function _mdFollowups(){
+  const rows=smtgs.filter(m=>m && !m.deleted && !m.done && ((catOf(m)==='Activity' && m.done===false) || !!m.nextAction))
+    .map(m=>({due:m.nextAction?(m.nextDate||''):(m.nextDate||m.date||''), rep:m.assignedTo||(Array.isArray(m.by)?m.by[0]:m.by)||'', label:m.nextAction||normType(m.type), who:m.company||''}));
+  prospects.forEach(p=>{ if(p && !p.deleted && prospectOpenAction(p).state==='legacy')
+    rows.push({due:p.nextActionDate||'', rep:p.assigned||'', label:p.nextAction||'', who:p.company||''}); });
+  return rows;
+}
+// Quality meetings (held, passes the capture rules) per rep in a date range
+function _mdQualityMeetings(rep, from, to){
+  const uid=teamMap[rep];
+  return [...meetings, ...smtgs].filter(m=>{
+    if(!m || m.deleted || catOf(m)!=='Meeting') return false;
+    if((m.status||'Completed')==='Scheduled') return false;
+    const d=_mdDate(m.date); if(!d || d<from || d>to) return false;
+    const att=Array.isArray(m.by)?m.by:(m.by?[m.by]:[]);
+    if(!(att.includes(rep) || (uid && m.user_id===uid))) return false;
+    return meetingIssues(m).length===0;
+  }).length;
+}
+async function _mdLoadTargets(){
+  if(_mdTargets!==null) return;
+  _mdTargets={};
+  try{
+    const yr=new Date().getFullYear();
+    const [{data:t},{data:tr}] = await Promise.all([ sb.rpc('get_admin_rep_targets',{p_year:yr}), sb.from('team').select('name,user_id').eq('active',true) ]);
+    const byUid={}; (tr||[]).forEach(r=>{ if(r.user_id) byUid[r.user_id]=r.name; });
+    (Array.isArray(t)?t:[]).forEach(r=>{ if(r.metric==='meetings' && byUid[r.rep_user_id]) _mdTargets[byUid[r.rep_user_id]]=Number(r.target_value)||0; });
+  }catch(e){ console.error('targets',e); }
+  if(curView==='dashboard') renderMgmtDash();
+}
+// Drill-down: list of leads, each clickable
+let _mdLists={};
+function mdShow(key){
+  const L=_mdLists[key]; if(!L) return;
+  let m=ge('mMdList');
+  if(!m){ document.body.insertAdjacentHTML('beforeend',`<div class="modal fade" id="mMdList" tabindex="-1"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header"><h6 class="modal-title" id="md-title"></h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body p-0" id="md-body"></div></div></div></div>`); m=ge('mMdList'); }
+  ge('md-title').textContent=L.title+' ('+L.rows.length+')';
+  ge('md-body').innerHTML = L.rows.length ? `<table class="ct"><thead><tr>${L.cols.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>`
+    + L.rows.map(r=>`<tr ${r.id?`onclick="bootstrap.Modal.getInstance(ge('mMdList'))?.hide();openLead('${esc(r.id)}')"`:''}>${r.cells.map((c,i)=>`<td style="${i===0?'font-weight:600':'font-size:.78rem;color:#555'}">${esc(c)}</td>`).join('')}</tr>`).join('')
+    + `</tbody></table>` : '<div class="es">Nothing here</div>';
+  bootstrap.Modal.getOrCreateInstance(m).show();
+}
+function _mdList(key,title,cols,rows){ _mdLists[key]={title,cols,rows}; return `onclick="mdShow('${key}')" style="cursor:pointer"`; }
+const _mdLeadRow = l => ({id:l.id, cells:[l.title, lhPool.has(l.id)?'Lead Hunter':(l.assigned||'—'), l.status, _mdDate(l.closing)||'—']});
+
+function renderMgmtDash(){
+  const host=ge('mgmt-dash'); if(!host) return;
+  _mdLists={}; _mdLoadTargets();
+  const t=today(), mon=_mdMonday(t), monthStart=t.slice(0,8)+'01', d30=_mdAddDays(t,-30), d14=_mdAddDays(t,14), d90=_mdAddDays(t,-90);
+  const live=leads.filter(l=>!l.deleted && !l.dismissed);
+  const open=live.filter(l=>MD_OPEN(l.status));
+  const card=(n,label,sub,col,attrs)=>`<div class="col-6 col-lg-3"><div class="stat-card md-card" ${attrs||''} style="border-left:4px solid ${col};${attrs?'cursor:pointer;':''}">
+     <div class="stat-n" style="color:${col}">${n}</div><div class="stat-l">${label}</div>${sub?`<div style="font-size:.7rem;color:#888;margin-top:.2rem">${sub}</div>`:''}</div></div>`;
+  const sec=(icon,title,body,right)=>`<div class="sc mb-3"><div class="sc-hdr"><h6><i class="fa ${icon} me-2" style="color:#1F4E79"></i>${title}</h6>${right||''}</div><div style="padding:.8rem 1rem">${body}</div></div>`;
+
+  // 1. Needs a decision today
+  const ready=open.filter(l=>lhPool.has(l.id) && (lhRecs[l.id]||[]).includes('ready_for_handover'));
+  const recs=open.filter(l=>(lhRecs[l.id]||[]).length);
+  const unassigned=open.filter(l=>!l.assigned && !lhPool.has(l.id));
+  const fu=_mdFollowups(), over=fu.filter(f=>f.due && f.due<t);
+  const overByRep={}; over.forEach(f=>{ const r=f.rep||'Unassigned'; overByRep[r]=(overByRep[r]||0)+1; });
+  const overTxt=Object.entries(overByRep).sort((a,b)=>b[1]-a[1]).slice(0,4).map(([r,n])=>`${esc(r.split(' ')[0])} ${n}`).join(' · ');
+  let h=`<div class="row g-3 mb-3">`
+    + card(ready.length,'Ready for handover','Lead Hunter has finished research','#6a1b9a',_mdList('ready','Ready for handover',['Lead','Owner','Status','Closing'],ready.map(_mdLeadRow)))
+    + card(recs.length,'Bot recommendations waiting','close / handover / stale','#8e24aa',_mdList('recs','Leads with a Lead Hunter recommendation waiting',['Lead','Owner','Status','Recommendation'],recs.map(l=>({id:l.id,cells:[l.title,lhPool.has(l.id)?'Lead Hunter':(l.assigned||'—'),l.status,(lhRecs[l.id]||[]).map(r=>LH_REC_LBL[r]||r).join(', ')]}))))
+    + card(unassigned.length,'Open leads with no rep','not in the Lead Hunter pool',unassigned.length?'#e65100':'#2e7d32',_mdList('unas','Open leads with no rep',['Lead','Owner','Status','Closing'],unassigned.map(_mdLeadRow)))
+    + card(over.length,'Overdue follow-ups',overTxt||'none',over.length?'#c62828':'#2e7d32','onclick="showView(\'followups\')" style="cursor:pointer"')
+    + `</div>`;
+
+  // 2. Pipeline health
+  const stages=['New','Contacted','In Discussion','Meeting Scheduled','Proposal Sent'];
+  const counts=[['Lead Hunter',open.filter(l=>lhPool.has(l.id))], ...stages.map(s=>[s,open.filter(l=>l.status===s && !lhPool.has(l.id))])];
+  const maxC=Math.max(1,...counts.map(c=>c[1].length));
+  const bars=counts.map(([s,arr],i)=>`<div class="md-bar" ${_mdList('st'+i,s,['Lead','Owner','Status','Closing'],arr.map(_mdLeadRow))}>
+      <div class="md-bar-lbl">${esc(s)}</div><div class="md-bar-track"><div class="md-bar-fill" style="width:${Math.round(arr.length/maxC*100)}%;background:${s==='Lead Hunter'?'#6a1b9a':'#1F4E79'}"></div></div><div class="md-bar-n">${arr.length}</div></div>`).join('');
+  const SI=s=>STATUSES.indexOf(s);
+  const moves=[]; live.forEach(l=>(l.statusHistory||[]).forEach(x=>{ if(x.date>=mon) moves.push({l,x}); }));
+  const fwd=moves.filter(m=>m.x.to!=='Dead / Lost' && SI(m.x.to)>SI(m.x.from)), back=moves.filter(m=>m.x.to!=='Dead / Lost' && SI(m.x.to)<SI(m.x.from));
+  const mvRows=a=>a.map(m=>({id:m.l.id,cells:[m.l.title,`${m.x.from||'—'} → ${m.x.to}`,m.x.by||'—',m.x.date]}));
+  const stuck=open.filter(l=>!lhPool.has(l.id) && (_mdDate(l.updated)||_mdDate(l.created)||'0000') < d30);
+  const stuckBy={}; stuck.forEach(l=>{ const r=l.assigned||'Unassigned'; stuckBy[r]=(stuckBy[r]||0)+1; });
+  h+=`<div class="row g-3"><div class="col-12 col-xl-7">`
+    + sec('fa-stream','Pipeline health',`${bars}
+      <div class="d-flex gap-3 flex-wrap mt-3" style="font-size:.8rem">
+        <div class="md-pill" ${_mdList('fwd','Moved forward this week',['Lead','Move','By','Date'],mvRows(fwd))}><i class="fa fa-arrow-up text-success me-1"></i><b>${fwd.length}</b> moved forward this week</div>
+        <div class="md-pill" ${_mdList('back','Moved backward this week',['Lead','Move','By','Date'],mvRows(back))}><i class="fa fa-arrow-down text-danger me-1"></i><b>${back.length}</b> moved back</div>
+        <div class="md-pill" ${_mdList('stuck','Stuck: no update in 30+ days',['Lead','Rep','Status','Closing'],stuck.sort((a,b)=>(a.assigned||'').localeCompare(b.assigned||'')).map(_mdLeadRow))}><i class="fa fa-pause-circle text-warning me-1"></i><b>${stuck.length}</b> stuck 30+ days</div>
+      </div>
+      ${stuck.length?`<div style="font-size:.72rem;color:#888;margin-top:.5rem">Stuck by rep: ${Object.entries(stuckBy).sort((a,b)=>b[1]-a[1]).map(([r,n])=>`${esc(r)} ${n}`).join(' · ')}</div>`:''}`);
+
+  // 5. Closing soon
+  const soon=open.filter(l=>{ const c=_mdDate(l.closing); return c && c>=t && c<=d14; }).sort((a,b)=>_mdDate(a.closing).localeCompare(_mdDate(b.closing)));
+  h+=sec('fa-hourglass-half','Closing in the next 14 days', soon.length? `<table class="ct"><thead><tr><th>Lead</th><th>Rep</th><th>Stage</th><th>Closes</th></tr></thead><tbody>`
+      + soon.map(l=>`<tr onclick="openLead('${l.id}')"><td style="font-weight:600">${esc(l.title.length>60?l.title.slice(0,60)+'…':l.title)}</td><td style="font-size:.78rem">${lhPool.has(l.id)?'<span style="color:#6a1b9a">Lead Hunter</span>':esc(l.assigned||'—')}</td><td><span class="sb">${esc(l.status)}</span></td><td style="font-size:.78rem;color:#c62828;white-space:nowrap">${_mdDate(l.closing)}</td></tr>`).join('')
+      + `</tbody></table>` : '<div style="color:#999;font-size:.8rem">Nothing closing in the next 14 days.</div>');
+  h+=`</div><div class="col-12 col-xl-5">`;
+
+  // 3. Won / lost this month
+  const closedThis=[]; live.forEach(l=>{ const x=[...(l.statusHistory||[])].reverse().find(x=>['Won','Dead / Lost'].includes(x.to)); if(x && x.date>=monthStart && l.status===x.to) closedThis.push({l,x}); });
+  const won=closedThis.filter(c=>c.x.to==='Won'), lost=closedThis.filter(c=>c.x.to==='Dead / Lost');
+  const reasons={}; lost.forEach(c=>{ const r=c.l.lossReason||'Not given'; reasons[r]=(reasons[r]||0)+1; });
+  const maxR=Math.max(1,...Object.values(reasons));
+  const cRows=a=>a.map(c=>({id:c.l.id,cells:[c.l.title,c.l.assigned||'—',c.l.lossReason||c.x.to,c.x.date]}));
+  h+=sec('fa-trophy','Won / lost this month',`<div class="d-flex gap-3 mb-2">
+       <div class="md-pill" ${_mdList('won','Won this month',['Lead','Rep','Result','Date'],cRows(won))}><b style="color:#2e7d32;font-size:1.3rem">${won.length}</b> won</div>
+       <div class="md-pill" ${_mdList('lost','Lost / closed this month',['Lead','Rep','Reason','Date'],cRows(lost))}><b style="color:#c62828;font-size:1.3rem">${lost.length}</b> lost / closed</div></div>
+     ${lost.length?`<div style="font-size:.7rem;font-weight:700;color:#888;margin:.4rem 0 .3rem">LOSS REASONS</div>`+Object.entries(reasons).sort((a,b)=>b[1]-a[1]).map(([r,n])=>`<div class="md-bar"><div class="md-bar-lbl" style="width:52%">${esc(r)}</div><div class="md-bar-track"><div class="md-bar-fill" style="width:${Math.round(n/maxR*100)}%;background:#c62828"></div></div><div class="md-bar-n">${n}</div></div>`).join(''):'<div style="color:#999;font-size:.8rem">No leads closed as lost this month.</div>'}`);
+
+  // 6. Where leads come from (last 90 days)
+  const recent=live.filter(l=>(_mdDate(l.created)||'')>=d90);
+  const bySrc={}; recent.forEach(l=>{ const s=l.source||'Unknown'; (bySrc[s]||=[]).push(l); });
+  const real=l=>!['New','Dead / Lost'].includes(l.status) && !lhPool.has(l.id);
+  h+=sec('fa-filter','Where leads come from <small style="font-weight:400;color:#999">last 90 days</small>', Object.keys(bySrc).length? `<table class="ct"><thead><tr><th>Source</th><th style="text-align:center">New leads</th><th style="text-align:center">Became real opportunities</th></tr></thead><tbody>`
+      + Object.entries(bySrc).sort((a,b)=>b[1].length-a[1].length).map(([s,arr],i)=>{ const r=arr.filter(real).length;
+        return `<tr ${_mdList('src'+i,'Leads from '+s+' (last 90 days)',['Lead','Owner','Status','Closing'],arr.map(_mdLeadRow))}><td style="font-weight:600">${esc(s)}</td><td style="text-align:center">${arr.length}</td><td style="text-align:center">${r} <span style="color:#999;font-size:.72rem">(${Math.round(r/arr.length*100)}%)</span></td></tr>`; }).join('')
+      + `</tbody></table><div style="font-size:.7rem;color:#999;margin-top:.4rem">"Real opportunity" = moved past New with a rep (Contacted or further, Won included).</div>` : '<div style="color:#999;font-size:.8rem">No new leads in the last 90 days.</div>');
+  h+=`</div></div>`;
+
+  // 4. Team scorecard (this month)
+  const mEnd=_mdAddDays(t,0), dim=new Date(Number(t.slice(0,4)),Number(t.slice(5,7)),0).getDate();
+  const reps=TEAM.filter(r=>r && r!=='Lead Hunter');
+  const fuBy={}; fu.forEach(f=>{ if(f.due && f.due<t) fuBy[f.rep]=(fuBy[f.rep]||0)+1; });
+  const rowsT=reps.map(r=>{
+    const mine=open.filter(l=>l.assigned===r), q=_mdQualityMeetings(r,monthStart,mEnd);
+    const tgtY=_mdTargets&&_mdTargets[r]; const tgtM=tgtY?Math.round(tgtY/12):null;
+    const pace=tgtM?Math.round(tgtM*Number(t.slice(8,10))/dim):null;
+    return {r,mine,q,tgtM,pace,over:fuBy[r]||0,stuck:stuckBy[r]||0};
+  }).filter(x=>x.mine.length||x.q||x.over||x.tgtM);
+  h+=sec('fa-users','Team scorecard <small style="font-weight:400;color:#999">this month</small>', rowsT.length? `<table class="ct"><thead><tr><th>Rep</th><th style="text-align:center">Open leads</th><th style="text-align:center">Quality meetings</th><th style="text-align:center">Overdue follow-ups</th><th style="text-align:center">Stuck 30+ days</th></tr></thead><tbody>`
+      + rowsT.map((x,i)=>`<tr><td style="font-weight:600">${esc(x.r)}</td>
+          <td style="text-align:center" ${_mdList('rep'+i,x.r+': open leads',['Lead','Owner','Status','Closing'],x.mine.map(_mdLeadRow))}><u>${x.mine.length}</u></td>
+          <td style="text-align:center"><b style="color:${x.pace==null?'#333':x.q>=x.pace?'#2e7d32':'#c62828'}">${x.q}</b>${x.tgtM!=null?` <span style="font-size:.7rem;color:#999">/ ${x.tgtM} target · ${x.pace} by today</span>`:''}</td>
+          <td style="text-align:center;color:${x.over?'#c62828':'#2e7d32'};font-weight:700">${x.over}</td>
+          <td style="text-align:center;color:${x.stuck?'#b45309':'#2e7d32'};font-weight:700">${x.stuck}</td></tr>`).join('')
+      + `</tbody></table><div style="font-size:.7rem;color:#999;margin-top:.4rem">Quality meetings = held meetings that pass the capture rules (attendee, client contact, what was discussed, outcome). Monthly target = annual target ÷ 12; green when on pace for today.</div>`
+      : '<div style="color:#999;font-size:.8rem">No rep activity yet this month.</div>');
+
+  host.innerHTML = `<div class="d-flex justify-content-between align-items-center mb-2"><div style="font-size:.78rem;color:#888">Management view · ${new Date().toLocaleDateString('en-ZA',{weekday:'long',day:'numeric',month:'long'})} · click any number to see the leads</div>
+     <a href="#" style="font-size:.75rem" onclick="event.preventDefault();_mdClassic=true;renderDash()">Show classic dashboard</a></div>` + h;
+}
 sb.auth.onAuthStateChange(async (event, session) => {
   sbSession = session;
   if (event === 'PASSWORD_RECOVERY') {
