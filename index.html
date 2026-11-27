@@ -4613,6 +4613,16 @@ let lhPool = new Set();   // lead ids Lead Hunter is still researching
 let lhRecs = {};          // lead id -> [pending recommendation types]
 let lhResearch = {};      // lead id -> open research request {note, requested_by, requested_at}
 const LH_LABEL = '<span style="color:#6a1b9a;font-weight:700"><i class="fa fa-robot me-1"></i>Lead Hunter (researching)</span>';
+const RESEARCH_OPTS = [
+  'Is the project / tender still live? (status, closing date)',
+  'Client / owner details',
+  'Main contractor / EPC',
+  'Consultants and engineers (electrical, specifier)',
+  'Key contacts (project manager, procurement)',
+  'Project value and timeline (start, completion)',
+  'Bergvik scope: raised floor, ceiling grid, busbar, electrical rooms',
+  'Competitors / incumbent suppliers',
+];
 const LOSS_REASONS = ['Spec substituted / value-engineered out','Price','Contractor lost the tender',
   'Project cancelled or stalled','Scope change','Process failure','No response / went cold','Other'];
 
@@ -4770,6 +4780,19 @@ function _ensureLHModals(){
     <div class="modal-footer"><button class="btn btn-sm btn-light" data-bs-dismiss="modal">Cancel</button>
       <button class="btn btn-sm btn-bv" id="mg-save" onclick="saveMerge()"><i class="fa fa-code-merge me-1"></i>Merge</button></div>
   </div></div></div>
+  <div class="modal fade" id="mResearch" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header" style="background:#1565c0;color:#fff"><h6 class="modal-title"><i class="fa fa-magnifying-glass me-2"></i>Request research from Lead Hunter</h6><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <div id="rs-title" style="font-weight:600;font-size:.88rem;margin-bottom:.3rem"></div>
+      <div style="font-size:.76rem;color:#777;margin-bottom:.7rem">The lead stays with its rep. Tick what you need; findings appear in the Lead Hunter panel on the lead.</div>
+      <div id="rs-opts">${RESEARCH_OPTS.map((o,i)=>`<div class="form-check mb-1"><input class="form-check-input" type="checkbox" id="rs-o${i}" value="${esc(o)}"><label class="form-check-label" for="rs-o${i}" style="font-size:.84rem">${esc(o)}</label></div>`).join('')}</div>
+      <label class="form-label mt-2">Other / specific question</label>
+      <textarea class="form-control" id="rs-other" rows="2" maxlength="400" placeholder="e.g. Is WBHO still the main contractor for phase 2?"></textarea>
+      <div id="rs-err" style="display:none;color:#c62828;font-size:.78rem;margin-top:.4rem"></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-sm btn-light" data-bs-dismiss="modal">Cancel</button>
+      <button class="btn btn-sm btn-primary" id="rs-save" onclick="saveResearchRequest()"><i class="fa fa-paper-plane me-1"></i>Send request</button></div>
+  </div></div></div>
   <div class="modal fade" id="mHandover" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
     <div class="modal-header" style="background:#6a1b9a;color:#fff"><h6 class="modal-title"><i class="fa fa-robot me-2"></i>Hand over from Lead Hunter</h6><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
     <div class="modal-body">
@@ -4883,7 +4906,7 @@ async function renderLHPanel(id){
     <div style="padding:.7rem .9rem;font-size:.79rem">`;
   if(rq) h+=`<div style="background:#e3f2fd;border-radius:6px;padding:.45rem .7rem;margin-bottom:.5rem">
         <b style="color:#1565c0"><i class="fa fa-magnifying-glass me-1"></i>Research requested</b> <span style="color:#999;font-size:.68rem">${esc(rq.requested_by)} · ${dt(rq.requested_at)}</span>
-        ${rq.note?`<div style="color:#444;margin-top:.15rem">${esc(rq.note)}</div>`:''}
+        ${rq.note?`<div style="color:#444;margin-top:.15rem;white-space:pre-line">${esc(rq.note)}</div>`:''}
         ${owner?`<div style="margin-top:.3rem"><button class="btn btn-sm btn-light py-0" style="font-size:.7rem" onclick="lhRequestResearch('${id}')">Edit note</button> <button class="btn btn-sm btn-light py-0" style="font-size:.7rem" onclick="lhCancelResearch('${id}')">Cancel request</button></div>`:''}
       </div>`;
   else if(canRequestResearch(l)) h+=`<div style="margin-bottom:.5rem"><button class="btn btn-sm btn-outline-primary py-0" style="font-size:.74rem" onclick="lhRequestResearch('${id}')"><i class="fa fa-magnifying-glass me-1"></i>Request research</button> <span style="color:#999;font-size:.7rem">Lead Hunter researches; the lead stays with its rep.</span></div>`;
@@ -4923,11 +4946,30 @@ async function lhDecide(recId, accept){
 }
 async function lhRevert(chgId){ if(!confirm('Undo this Lead Hunter change?')) return; if(await _lhRpc('lh_revert_change',{p_change_id:chgId})){ await refreshLead(curLead); renderLD(curLead); } }
 async function lhVerify(cid){ if(await _lhRpc('lh_verify_contact',{p_contact_id:cid})){ await refreshLead(curLead); renderLD(curLead); } }
-async function lhRequestResearch(id){
-  const cur = lhResearch[id]?.note || '';
-  const note = prompt('What should Lead Hunter find out? (optional)\ne.g. Who is the main contractor? Any consultant names? Is the tender still open?', cur);
-  if(note===null) return;
-  if(await _lhRpc('lh_request_research',{p_lead_id:id,p_note:note})){ await loadLH(); rerenderCurrent(); showToast('Research requested from Lead Hunter'); }
+let _rsId=null;
+function lhRequestResearch(id){
+  const l=leads.find(x=>x.id===id); if(!l) return;
+  _ensureLHModals(); _rsId=id;
+  ge('rs-title').textContent=l.title; ge('rs-err').style.display='none';
+  // Re-tick what was asked before (when editing an open request)
+  const lines=(lhResearch[id]?.note||'').split('\n').map(x=>x.replace(/^- /,'').trim());
+  RESEARCH_OPTS.forEach((o,i)=>{ ge('rs-o'+i).checked=lines.includes(o); });
+  const other=lines.find(x=>x.startsWith('Other: '));
+  ge('rs-other').value=other?other.slice(7):'';
+  bootstrap.Modal.getOrCreateInstance(ge('mResearch')).show();
+}
+async function saveResearchRequest(){
+  ge('rs-err').style.display='none';
+  const picked=RESEARCH_OPTS.filter((o,i)=>ge('rs-o'+i).checked);
+  const other=gv('rs-other').trim();
+  if(!picked.length && !other){ ge('rs-err').textContent='Tick at least one item or write a question.'; ge('rs-err').style.display='block'; return; }
+  const note=[...picked.map(o=>'- '+o), ...(other?['- Other: '+other]:[])].join('\n');
+  ge('rs-save').disabled=true;
+  const ok=await _lhRpc('lh_request_research',{p_lead_id:_rsId,p_note:note});
+  ge('rs-save').disabled=false;
+  if(!ok) return;
+  bootstrap.Modal.getInstance(ge('mResearch'))?.hide();
+  await loadLH(); rerenderCurrent(); showToast('Research requested from Lead Hunter');
 }
 async function lhCancelResearch(id){
   if(!confirm('Cancel the research request?')) return;
